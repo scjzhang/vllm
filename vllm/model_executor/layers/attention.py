@@ -1,6 +1,6 @@
 """Multi-head attention."""
-from typing import Any, Dict, List, Optional
 
+from typing import Any, Dict, List, Optional
 import torch
 import torch.nn as nn
 from xformers import ops as xops
@@ -211,11 +211,12 @@ class PagedAttention(nn.Module):
                 value[:num_prompt_tokens],
                 input_metadata,
             )
+            caller = inspect.stack()[1]
+            caller_name = caller.function
 
         # Wait until the cache op is done.
         if cache_event is not None:
             cache_event.wait()
-
         # Reshape the keys and values and store them in the cache.
         # When key_cache and value_cache are not provided, the new key
         # and value vectors will not be cached.
@@ -230,6 +231,22 @@ class PagedAttention(nn.Module):
                 value_cache,
                 input_metadata.slot_mapping,
             )
+            tensors_on_cpu = {}
+            value_on_cpu = {}
+            gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
+            tensors_on_cpu[gpu_index] = key[:num_valid_tokens].to('cpu')
+            value_on_cpu[gpu_index] = value[:num_valid_tokens].to('cpu')
+            txt_file_path = f'gpu_{gpu_index}_tensor.txt'
+            pt_file_path = f'gpu_{gpu_index}_tensor.pt'
+            torch.set_printoptions(profile="full")
+            #for idx, key_tensor in tensors_on_cpu.items():
+                #with open('./key_cache/' + txt_file_path, 'w') as txt_file:
+                #    txt_file.write(str(key_tensor))
+                #torch.save(key_tensor, './key_cache/' + pt_file_path)
+            #for idx, value_tensor in value_on_cpu.items():
+                #with open('./value_cache/' + txt_file_path, 'w') as txt_file:
+                #    txt_file.write(str(value_tensor))
+                #torch.save(value_tensor, './value_cache/' + pt_file_path)
 
         if input_metadata.num_generation_tokens > 0:
             # Decoding run.

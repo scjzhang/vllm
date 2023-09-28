@@ -259,6 +259,8 @@ class LLMEngine:
             assert prompt is not None
             prompt_token_ids = self.tokenizer.encode(prompt)
 
+        #print("Encoder: ", len(prompt_token_ids), prompt_token_ids)
+
         # Create the sequences.
         block_size = self.cache_config.block_size
         seq_id = next(self.seq_counter)

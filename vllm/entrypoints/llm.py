@@ -1,3 +1,5 @@
+import time
+import numpy as np
 from typing import List, Optional, Union
 
 from tqdm import tqdm
@@ -72,6 +74,7 @@ class LLM:
     ) -> None:
         if "disable_log_stats" not in kwargs:
             kwargs["disable_log_stats"] = True
+        print("kwargs:", kwargs)
         engine_args = EngineArgs(
             model=model,
             tokenizer=tokenizer,
@@ -169,8 +172,12 @@ class LLM:
             pbar = tqdm(total=num_requests, desc="Processed prompts")
         # Run the engine.
         outputs: List[RequestOutput] = []
+        latency = []
         while self.llm_engine.has_unfinished_requests():
+            start = time.time()
             step_outputs = self.llm_engine.step()
+            end = time.time()
+            latency.append(end-start)
             for output in step_outputs:
                 if output.finished:
                     outputs.append(output)
@@ -182,4 +189,7 @@ class LLM:
         # This is necessary because some requests may be finished earlier than
         # its previous requests.
         outputs = sorted(outputs, key=lambda x: int(x.request_id))
+        print("Prompt: ", latency[0]*1000)
+        if len(latency) > 1:
+            print("Token: ", np.mean(latency[1:])*1000)
         return outputs
