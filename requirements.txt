@@ -5,7 +5,7 @@ pandas  # Required for Ray data.
 pyarrow  # Required for Ray data.
 sentencepiece  # Required for LLaMA tokenizer.
 numpy
-torch @ https://download.pytorch.org/whl/nightly/cu121/torch-2.1.0.dev20230812%2Bcu121-cp310-cp310-linux_x86_64.whl
+torch @ https://download.pytorch.org/whl/nightly/cu121/torch-2.1.0.dev20230812%2Bcu121-cp38-cp38-linux_x86_64.whl
 transformers >= 4.33.1  # Required for Code Llama.
 xformers >= 0.0.22
 fastapi

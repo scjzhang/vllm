@@ -3,8 +3,8 @@ requires = [
     "ninja",
     "packaging",
     "setuptools",
-    "torch @ file:///home/azureuser/aashaka/torch-2.1.0.dev20230812+cu121-cp310-cp310-linux_x86_64.whl",
-    "pytorch-triton @ file:///home/azureuser/aashaka/pytorch_triton-2.1.0+e6216047b8-cp310-cp310-linux_x86_64.whl",
+    "torch @ file:///home/azureuser/torch-2.1.0.dev20230812+cu121-cp38-cp38-linux_x86_64.whl",
+    "pytorch-triton @ file:///home/azureuser/pytorch_triton-2.1.0+e6216047b8-cp38-cp38-linux_x86_64.whl",
     "wheel",
 ]
 build-backend = "setuptools.build_meta"
