@@ -10,8 +10,9 @@ parser.add_argument("--batch_size", default=1, type=int, help="batch size")
 parser.add_argument("--max_new_tokens", default=50, type=int, help="maximum new tokens to generate")
 parser.add_argument("--tensor_para_size", default=8, type=int, help="tensor parallelism")
 parser.add_argument("--iters", default=5, type=int, help="number of iterations")
-parser.add_argument("--greedy", action='store_true', help="greedy generation mode - temperature=0"))
+parser.add_argument("--greedy", action='store_true', help="greedy generation mode - temperature=0")
 parser.add_argument("--print_output", action='store_true', help="print generated output text")
+args = parser.parse_args()
 
 max_model_len = args.max_new_tokens + args.intput_size + 2
 llm = LLM(args.model,
