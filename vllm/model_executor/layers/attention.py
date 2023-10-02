@@ -204,7 +204,7 @@ class PagedAttention(nn.Module):
         self.layers += 1
         # Compute the attention op for prompts.
         num_prompt_tokens = input_metadata.num_prompt_tokens
-        print("current layers: ", self.layers, num_prompt_tokens, key_cache is not None)
+        print("current layers: ", os.getenv("local_rank", "0"), self.layers, num_prompt_tokens, key_cache is not None)
         if num_prompt_tokens > 0:
             # Prompt run.
             assert input_metadata.num_generation_tokens == 0
