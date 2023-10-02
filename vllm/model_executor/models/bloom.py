@@ -242,6 +242,8 @@ class BloomModel(nn.Module):
                 input_metadata,
                 cache_event,
             )
+            if int(torch.cuda.current_device()) == 0:
+                print("layers prompt run: ", i, layer)
         hidden_states = self.ln_f(hidden_states)
         return hidden_states
 

@@ -208,7 +208,7 @@ class PagedAttention(nn.Module):
         if num_prompt_tokens > 0:
             # Prompt run.
             if int(torch.cuda.current_device()) == 0:
-                print("layers prompt run: ", , self.layers, num_valid_tokens, num_prompt_tokens)
+                print("layers prompt run: ", self.layers, num_valid_tokens, num_prompt_tokens)
             assert input_metadata.num_generation_tokens == 0
             self.set_attn_bias(input_metadata, dtype=query.dtype)
             self.multi_query_kv_attention(
@@ -219,7 +219,7 @@ class PagedAttention(nn.Module):
                 input_metadata,
             )
         if int(torch.cuda.current_device()) == 0:
-            print("layers before cache op: ", , self.layers, num_valid_tokens, num_prompt_tokens)
+            print("layers before cache op: ", self.layers, num_valid_tokens, num_prompt_tokens)
         # Wait until the cache op is done.
         if cache_event is not None:
             cache_event.wait()
@@ -231,7 +231,7 @@ class PagedAttention(nn.Module):
                 and value_cache is not None):
             # The stride is 3 because the key and value are sliced from qkv.
             if int(torch.cuda.current_device()) == 0:
-                print("current layers: ", , self.layers, num_valid_tokens, num_prompt_tokens)
+                print("current layers: ", self.layers, num_valid_tokens, num_prompt_tokens)
 
             key_to_cache = key[:num_valid_tokens]
             value_to_cache = value[:num_valid_tokens]
