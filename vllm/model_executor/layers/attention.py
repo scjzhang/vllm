@@ -202,10 +202,8 @@ class PagedAttention(nn.Module):
 
         # Pre-allocate the output tensor.
         output = torch.empty_like(query)
-        self.layers += 1
         # Compute the attention op for prompts.
         num_prompt_tokens = input_metadata.num_prompt_tokens
-        print("current layers: ", torch.cuda.current_device(), self.layers, num_prompt_tokens, key_cache is not None)
         if num_prompt_tokens > 0:
             # Prompt run.
             assert input_metadata.num_generation_tokens == 0
@@ -225,9 +223,13 @@ class PagedAttention(nn.Module):
         # When key_cache and value_cache are not provided, the new key
         # and value vectors will not be cached.
         num_valid_tokens = input_metadata.num_valid_tokens
+        self.layers += 1
         if (num_valid_tokens > 0 and key_cache is not None
                 and value_cache is not None):
             # The stride is 3 because the key and value are sliced from qkv.
+            if int(torch.cuda.current_device()) == 0:
+                print("current layers: ", , self.layers, num_valid_tokens, num_prompt_tokens)
+
             key_to_cache = key[:num_valid_tokens]
             value_to_cache = value[:num_valid_tokens]
             slot_mapping = input_metadata.slot_mapping
