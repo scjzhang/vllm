@@ -2,6 +2,7 @@
 
 from typing import Any, Dict, List, Optional
 import torch
+import os
 import torch.nn as nn
 from xformers import ops as xops
 from xformers.ops.fmha.attn_bias import (BlockDiagonalCausalMask,
