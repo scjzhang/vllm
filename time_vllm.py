@@ -14,7 +14,7 @@ parser.add_argument("--greedy", action='store_true', help="greedy generation mod
 parser.add_argument("--print_output", action='store_true', help="print generated output text")
 args = parser.parse_args()
 
-max_model_len = args.max_new_tokens + args.intput_size + 2
+max_model_len = args.max_new_tokens + args.input_size + 2
 llm = LLM(args.model,
         tensor_parallel_size=args.tensor_para_size, 
         max_model_len=max_model_len, 

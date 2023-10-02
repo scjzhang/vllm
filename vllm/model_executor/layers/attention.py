@@ -219,7 +219,7 @@ class PagedAttention(nn.Module):
                 input_metadata,
             )
         if int(torch.cuda.current_device()) == 0:
-            print("layers before cache op: ", self.layers, num_valid_tokens, num_prompt_tokens)
+            print("layers before cache op: ", self.layers, num_prompt_tokens)
         # Wait until the cache op is done.
         if cache_event is not None:
             cache_event.wait()
