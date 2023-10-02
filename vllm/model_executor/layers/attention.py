@@ -199,6 +199,7 @@ class PagedAttention(nn.Module):
         query = query.view(-1, self.num_heads, self.head_size)
         key = key.view(-1, self.num_kv_heads, self.head_size)
         value = value.view(-1, self.num_kv_heads, self.head_size)
+        self.layers += 1
 
         # Pre-allocate the output tensor.
         output = torch.empty_like(query)
@@ -215,7 +216,8 @@ class PagedAttention(nn.Module):
                 value[:num_prompt_tokens],
                 input_metadata,
             )
-
+        if int(torch.cuda.current_device()) == 0:
+            print("layers before cache op: ", , self.layers, num_valid_tokens, num_prompt_tokens)
         # Wait until the cache op is done.
         if cache_event is not None:
             cache_event.wait()
@@ -223,7 +225,6 @@ class PagedAttention(nn.Module):
         # When key_cache and value_cache are not provided, the new key
         # and value vectors will not be cached.
         num_valid_tokens = input_metadata.num_valid_tokens
-        self.layers += 1
         if (num_valid_tokens > 0 and key_cache is not None
                 and value_cache is not None):
             # The stride is 3 because the key and value are sliced from qkv.
