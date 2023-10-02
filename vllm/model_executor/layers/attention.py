@@ -208,7 +208,7 @@ class PagedAttention(nn.Module):
         if num_prompt_tokens > 0:
             # Prompt run.
             if int(torch.cuda.current_device()) == 0:
-                print("layers prompt run: ", self.layers, num_valid_tokens, num_prompt_tokens)
+                print("layers prompt run: ", self.layers, num_prompt_tokens)
             assert input_metadata.num_generation_tokens == 0
             self.set_attn_bias(input_metadata, dtype=query.dtype)
             self.multi_query_kv_attention(
