@@ -66,7 +66,7 @@ class PagedAttention(nn.Module):
         self.scale = float(scale)
         self.num_kv_heads = num_heads if num_kv_heads is None else num_kv_heads
         self.sliding_window = sliding_window
-
+        self.layers = 0
         assert self.num_heads % self.num_kv_heads == 0
         self.num_queries_per_kv = self.num_heads // self.num_kv_heads
         self.head_mapping = torch.repeat_interleave(
@@ -201,9 +201,10 @@ class PagedAttention(nn.Module):
 
         # Pre-allocate the output tensor.
         output = torch.empty_like(query)
-
+        self.layers += 1
         # Compute the attention op for prompts.
         num_prompt_tokens = input_metadata.num_prompt_tokens
+        print("current layers: ", self.layers, num_prompt_tokens, key_cache is not None)
         if num_prompt_tokens > 0:
             # Prompt run.
             assert input_metadata.num_generation_tokens == 0
@@ -215,8 +216,6 @@ class PagedAttention(nn.Module):
                 value[:num_prompt_tokens],
                 input_metadata,
             )
-            caller = inspect.stack()[1]
-            caller_name = caller.function
 
         # Wait until the cache op is done.
         if cache_event is not None:
