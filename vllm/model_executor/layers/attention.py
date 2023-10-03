@@ -241,7 +241,6 @@ class PagedAttention(nn.Module):
             value_to_cache = value[:num_valid_tokens]
             slot_mapping = input_metadata.slot_mapping
             key_shape = key_to_cache.shape
-            print("key_shape", key_shape)
             tensors_output = key_to_cache.cpu().numpy().flatten()
             tensors_output += 1024
 
@@ -256,12 +255,12 @@ class PagedAttention(nn.Module):
             with bz2.open(filename, "rb") as infile:
                 tensors_input = np.load(infile)
                 tensors_input -= 1024
-                # tensors_input.reshape(key_shape)
                 tensors_input = torch.from_numpy(tensors_input)
                 tensors_input = torch.reshape(tensors_input, key_shape)
-            print(key_to_cache.shape, tensors_input.shape)
+
             device = torch.device(f"cuda:{str(gpu_index)}")
             key_to_cache = tensors_input.to(device)
+            torch.cuda.synchronize()
 
             # to_cpu_start = time.perf_counter()
             # gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
