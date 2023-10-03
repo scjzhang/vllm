@@ -3,6 +3,7 @@
 from typing import Any, Dict, List, Optional
 import torch
 import time
+import os
 import torch.nn as nn
 from xformers import ops as xops
 from xformers.ops.fmha.attn_bias import (BlockDiagonalCausalMask,
@@ -231,14 +232,35 @@ class PagedAttention(nn.Module):
             if int(torch.cuda.current_device()) == 0:
                 print("current layers: ", self.layers, num_valid_tokens, num_prompt_tokens)
 
+            tensors_on_cpu = {}
+            value_on_cpu = {}
             key_to_cache = key[:num_valid_tokens]
             value_to_cache = value[:num_valid_tokens]
             slot_mapping = input_metadata.slot_mapping
+
+            to_cpu_start = time.perf_counter()
             gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
-            pt_file_path = f'gpu_{gpu_index}_tensor.pt'
-            torch.save(key_to_cache.to('cpu'), pt_file_path)
+            tensors_on_cpu[gpu_index] = key[:num_valid_tokens].to('cpu')
+            value_on_cpu[gpu_index] = value[:num_valid_tokens].to('cpu')
+
+            torch.cuda.synchronize()
+            if int(torch.cuda.current_device()) == 0:
+                print("Copy to CPU: ", time.perf_counter() - to_cpu_start)
+            
+            key_directory_path = './key_cache/'
+            files = os.listdir(directory_path)
+            indices = [int(file.split('-')[1]) for file in files if file.startwith(f'gpu_{gpu_index}_tensor')]
+            prev_layer = max(indices) if indices else 0
+            cur_layer = prev_layer + 1
+            pt_file_path = f'gpu_{gpu_index}_tensor-{cur_layer}.pt'
+            torch.save(tensors_on_cpu[gpu_index], './key_cache/' + pt_file_path)
+            torch.save(value_on_cpu[gpu_index], './value_cache/' + pt_file_path)
+            # for idx, key_tensor in tensors_on_cpu.items():
+            #     torch.save(key_to_cache, pt_file_path)
+            # for idx, value_tensor in value_on_cpu.items():
+            #     torch.save(value_tensor, './value_cache/' + pt_file_path)
+
             if input_metadata.to_cache is not None:
-                print("to_cache is not None")
                 key_to_cache = key_to_cache[input_metadata.to_cache]
                 value_to_cache = value_to_cache[input_metadata.to_cache]
                 slot_mapping = slot_mapping[input_metadata.to_cache]
@@ -250,18 +272,9 @@ class PagedAttention(nn.Module):
                 value_cache,
                 slot_mapping,
             )
-            tensors_on_cpu = {}
-            value_on_cpu = {}
-            gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
-            to_cpu_start = time.time()
-            # tensors_on_cpu[gpu_index] = key[:num_valid_tokens].to('cpu')
-            # value_on_cpu[gpu_index] = value[:num_valid_tokens].to('cpu')
-            # torch.cuda.synchronize()
-            # print("key", gpu_index)
-            # if int(torch.cuda.current_device()) == 0:
-            #     print("copy to cpu: ", time.time() - to_cpu_start)
-            txt_file_path = f'gpu_{gpu_index}_tensor.txt'
-            pt_file_path = f'gpu_{gpu_index}_tensor.pt'
+
+
+            # txt_file_path = f'gpu_{gpu_index}_tensor.txt'
             # torch.set_printoptions(profile="full")
             # for idx, key_tensor in tensors_on_cpu.items():
 
