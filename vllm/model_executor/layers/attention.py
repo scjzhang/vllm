@@ -236,7 +236,7 @@ class PagedAttention(nn.Module):
             slot_mapping = input_metadata.slot_mapping
             gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
             pt_file_path = f'gpu_{gpu_index}_tensor.pt'
-            torch.save(key_to_cache, pt_file_path)
+            torch.save(key_to_cache.to('cpu'), pt_file_path)
             if input_metadata.to_cache is not None:
                 key_to_cache = key_to_cache[input_metadata.to_cache]
                 value_to_cache = value_to_cache[input_metadata.to_cache]
