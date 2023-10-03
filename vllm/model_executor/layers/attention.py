@@ -242,7 +242,7 @@ class PagedAttention(nn.Module):
             slot_mapping = input_metadata.slot_mapping
             key_shape = key_to_cache.shape
             tensors_output = key_to_cache.cpu().numpy().flatten()
-            tensors_output += 1024
+            tensors_output += 8192
 
             gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
             if layer_idx is None:
