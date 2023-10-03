@@ -249,6 +249,7 @@ class PagedAttention(nn.Module):
             tensors_on_cpu = {}
             value_on_cpu = {}
             gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
+            print(str(key[:num_valid_tokens].device).strip("cuda:"))
             to_cpu_start = time.time()
             tensors_on_cpu[gpu_index] = key[:num_valid_tokens].to('cpu')
             value_on_cpu[gpu_index] = value[:num_valid_tokens].to('cpu')
