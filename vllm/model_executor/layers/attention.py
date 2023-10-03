@@ -3,6 +3,7 @@
 from typing import Any, Dict, List, Optional
 import torch
 import time
+import bz2
 import os
 import numpy as np
 import torch.nn as nn
