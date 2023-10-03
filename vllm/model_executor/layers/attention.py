@@ -249,16 +249,13 @@ class PagedAttention(nn.Module):
             tensors_on_cpu = {}
             value_on_cpu = {}
             gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
-            print(str(key[:num_valid_tokens].device).strip("cuda:"))
             to_cpu_start = time.time()
             tensors_on_cpu[gpu_index] = key[:num_valid_tokens].to('cpu')
             value_on_cpu[gpu_index] = value[:num_valid_tokens].to('cpu')
             torch.cuda.synchronize()
-            print("key", tensors_on_cpu)
-            print("value", value_on_cpu)
-            print(tensors_on_cpu[0].shape)
-            if int(torch.cuda.current_device()) == 0:
-                print("copy to cpu: ", time.time() - to_cpu_start)
+            print("key", len(tensors_on_cpu), len(value_on_cpu), tensors_on_cpu.keys(), value_on_cpu.keys())
+            # if int(torch.cuda.current_device()) == 0:
+            #     print("copy to cpu: ", time.time() - to_cpu_start)
             txt_file_path = f'gpu_{gpu_index}_tensor.txt'
             pt_file_path = f'gpu_{gpu_index}_tensor.pt'
             # torch.set_printoptions(profile="full")
