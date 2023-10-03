@@ -249,8 +249,7 @@ class PagedAttention(nn.Module):
             
             directory_path = './key_cache/'
             files = os.listdir(directory_path)
-            print(files)
-            indices = [int(file.split('-')[1]) for file in files if file.startwith(f'gpu_{gpu_index}_tensor')]
+            indices = [int(file.strip('.pt').split('-')[1]) for file in files if file.startwith(f'gpu_{gpu_index}_tensor')]
             prev_layer = max(indices) if indices else 0
             cur_layer = prev_layer + 1
             pt_file_path = f'gpu_{gpu_index}_tensor-{cur_layer}.pt'
