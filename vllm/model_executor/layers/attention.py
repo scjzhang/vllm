@@ -240,7 +240,7 @@ class PagedAttention(nn.Module):
             value_to_cache = value[:num_valid_tokens]
             slot_mapping = input_metadata.slot_mapping
 
-            tensors_output = key_to_cache.numpy().flatten()
+            tensors_output = key_to_cache.cpu().numpy().flatten()
             tensors_output += 1024
 
             gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
@@ -254,7 +254,8 @@ class PagedAttention(nn.Module):
                 tensors_input.reshape(key_to_cache.shape)
                 tensors_input = torch.from_numpy(tensors_input)
             
-            key_to_cache = tensors_input
+            device = torch.device(f"cuda:{str(gpu_index)}")
+            key_to_cache = tensors_input.to(device)
 
             # to_cpu_start = time.perf_counter()
             # gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
