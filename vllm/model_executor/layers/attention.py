@@ -234,6 +234,9 @@ class PagedAttention(nn.Module):
             key_to_cache = key[:num_valid_tokens]
             value_to_cache = value[:num_valid_tokens]
             slot_mapping = input_metadata.slot_mapping
+            gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
+            pt_file_path = f'gpu_{gpu_index}_tensor.pt'
+            torch.save(key_to_cache, pt_file_path)
             if input_metadata.to_cache is not None:
                 key_to_cache = key_to_cache[input_metadata.to_cache]
                 value_to_cache = value_to_cache[input_metadata.to_cache]
@@ -252,14 +255,15 @@ class PagedAttention(nn.Module):
             to_cpu_start = time.time()
             # tensors_on_cpu[gpu_index] = key[:num_valid_tokens].to('cpu')
             # value_on_cpu[gpu_index] = value[:num_valid_tokens].to('cpu')
-            torch.cuda.synchronize()
-            print("key", gpu_index)
+            # torch.cuda.synchronize()
+            # print("key", gpu_index)
             # if int(torch.cuda.current_device()) == 0:
             #     print("copy to cpu: ", time.time() - to_cpu_start)
             txt_file_path = f'gpu_{gpu_index}_tensor.txt'
             pt_file_path = f'gpu_{gpu_index}_tensor.pt'
             # torch.set_printoptions(profile="full")
-            #for idx, key_tensor in tensors_on_cpu.items():
+            # for idx, key_tensor in tensors_on_cpu.items():
+
                 #with open('./key_cache/' + txt_file_path, 'w') as txt_file:
                 #    txt_file.write(str(key_tensor))
                 #torch.save(key_tensor, './key_cache/' + pt_file_path)
