@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 import torch
 import time
 import os
+import numpy as np
 import torch.nn as nn
 from xformers import ops as xops
 from xformers.ops.fmha.attn_bias import (BlockDiagonalCausalMask,
@@ -239,29 +240,37 @@ class PagedAttention(nn.Module):
             value_to_cache = value[:num_valid_tokens]
             slot_mapping = input_metadata.slot_mapping
 
-            to_cpu_start = time.perf_counter()
-            gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
-            tensors_on_cpu[gpu_index] = key[:num_valid_tokens].to('cpu')
-            value_on_cpu[gpu_index] = value[:num_valid_tokens].to('cpu')
+            tensors_output = key_to_cache.numpy().flatten()
+            tensors_output += 1024
 
-            torch.cuda.synchronize()
-            if int(torch.cuda.current_device()) == 0:
-                print("Copy to CPU: ", time.perf_counter() - to_cpu_start)
+            gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
+            filename = f'gpu_{gpu_index}_compressed-{cur_layer}.pt'
+            with bz2.open(filename, "wb") as outfile:
+                np.save(outfile, tensors_output)
             
-            # directory_path = './key_cache/'
-            # files = os.listdir(directory_path)
-            # indices = [int(file.strip('.pt').split('-')[1]) for file in files if file.startswith(f'gpu_{gpu_index}_tensor')]
-            # prev_layer = max(indices) if indices else 0
-            if layer_idx is None:
-                print("layer idx is not configured")
-            cur_layer = layer_idx if layer_idx else 0
-            pt_file_path = f'gpu_{gpu_index}_tensor-{cur_layer}.pt'
-            torch.save(tensors_on_cpu[gpu_index], './key_cache/' + pt_file_path)
-            torch.save(value_on_cpu[gpu_index], './value_cache/' + pt_file_path)
-            # for idx, key_tensor in tensors_on_cpu.items():
-            #     torch.save(key_to_cache, pt_file_path)
-            # for idx, value_tensor in value_on_cpu.items():
-            #     torch.save(value_tensor, './value_cache/' + pt_file_path)
+            with bz2.open(filename, "rb") as infile:
+                tensors_input = np.load(infile)
+                tensors_input -= 1024
+                tensors_input.reshape(key_to_cache.shape)
+                tensors_input = torch.from_numpy(tensors_input)
+            
+            key_to_cache = tensors_input
+
+            # to_cpu_start = time.perf_counter()
+            # gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
+            # tensors_on_cpu[gpu_index] = key[:num_valid_tokens].to('cpu')
+            # value_on_cpu[gpu_index] = value[:num_valid_tokens].to('cpu')
+
+            # torch.cuda.synchronize()
+            # if int(torch.cuda.current_device()) == 0:
+            #     print("Copy to CPU: ", time.perf_counter() - to_cpu_start)
+            # if layer_idx is None:
+            #     print("layer idx is not configured")
+            # cur_layer = layer_idx if layer_idx else 0
+            # pt_file_path = f'gpu_{gpu_index}_tensor-{cur_layer}.pt'
+
+            # torch.save(tensors_on_cpu[gpu_index], './key_cache/' + pt_file_path)
+            # torch.save(value_on_cpu[gpu_index], './value_cache/' + pt_file_path)
 
             if input_metadata.to_cache is not None:
                 key_to_cache = key_to_cache[input_metadata.to_cache]
