@@ -244,6 +244,9 @@ class PagedAttention(nn.Module):
             tensors_output += 1024
 
             gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
+            if layer_idx is None:
+                print("layer idx is not configured")
+            cur_layer = layer_idx if layer_idx else 0
             filename = f'gpu_{gpu_index}_compressed-{cur_layer}.pt'
             with bz2.open(filename, "wb") as outfile:
                 np.save(outfile, tensors_output)
