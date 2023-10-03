@@ -250,10 +250,10 @@ class PagedAttention(nn.Module):
             value_on_cpu = {}
             gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
             to_cpu_start = time.time()
-            tensors_on_cpu[gpu_index] = key[:num_valid_tokens].to('cpu')
-            value_on_cpu[gpu_index] = value[:num_valid_tokens].to('cpu')
+            # tensors_on_cpu[gpu_index] = key[:num_valid_tokens].to('cpu')
+            # value_on_cpu[gpu_index] = value[:num_valid_tokens].to('cpu')
             torch.cuda.synchronize()
-            print("key", len(tensors_on_cpu), len(value_on_cpu), tensors_on_cpu.keys(), value_on_cpu.keys())
+            print("key", gpu_index)
             # if int(torch.cuda.current_device()) == 0:
             #     print("copy to cpu: ", time.time() - to_cpu_start)
             txt_file_path = f'gpu_{gpu_index}_tensor.txt'
