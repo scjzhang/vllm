@@ -254,7 +254,7 @@ class PagedAttention(nn.Module):
             
             with bz2.open(filename, "rb") as infile:
                 tensors_input = np.load(infile)
-                tensors_input -= 1024
+                tensors_input -= 8192
                 tensors_input = torch.from_numpy(tensors_input)
                 tensors_input = torch.reshape(tensors_input, key_shape)
 
