@@ -253,6 +253,8 @@ class PagedAttention(nn.Module):
             to_cpu_start = time.time()
             tensors_on_cpu[gpu_index] = key[:num_valid_tokens].to('cpu')
             value_on_cpu[gpu_index] = value[:num_valid_tokens].to('cpu')
+            torch.cuda.synchronize()
+            print(len(tensors_on_cpu))
             print("equal?", tensors_on_cpu[0] == tensors_on_cpu[1])
             print(tensors_on_cpu[0].shape)
             if int(torch.cuda.current_device()) == 0:
