@@ -247,7 +247,7 @@ class PagedAttention(nn.Module):
             if int(torch.cuda.current_device()) == 0:
                 print("Copy to CPU: ", time.perf_counter() - to_cpu_start)
             
-            key_directory_path = './key_cache/'
+            directory_path = './key_cache/'
             files = os.listdir(directory_path)
             indices = [int(file.split('-')[1]) for file in files if file.startwith(f'gpu_{gpu_index}_tensor')]
             prev_layer = max(indices) if indices else 0
