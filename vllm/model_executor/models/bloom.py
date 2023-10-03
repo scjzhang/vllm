@@ -169,6 +169,7 @@ class BloomBlock(nn.Module):
         kv_cache: KVCache,
         input_metadata: InputMetadata,
         cache_event: Optional[torch.cuda.Event],
+        layer_idx: Optional[int] = None,
     ) -> torch.Tensor:
         # Layer norm at the beginning of the transformer layer.
         layernorm_output = self.input_layernorm(hidden_states)
@@ -186,6 +187,7 @@ class BloomBlock(nn.Module):
             kv_cache=kv_cache,
             input_metadata=input_metadata,
             cache_event=cache_event,
+            layer_idx=layer_idx
         )
         attention_output = attention_output + residual
         layernorm_output = self.post_attention_layernorm(attention_output)
