@@ -244,6 +244,7 @@ class BloomModel(nn.Module):
                 kv_caches[i],
                 input_metadata,
                 cache_event,
+                layer_idx=i
             )
             # if int(torch.cuda.current_device()) == 0:
             #     print("layers forward pass: ", i)

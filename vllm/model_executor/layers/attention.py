@@ -175,6 +175,7 @@ class PagedAttention(nn.Module):
         value_cache: Optional[torch.Tensor],
         input_metadata: InputMetadata,
         cache_event: Optional[torch.cuda.Event],
+        layer_idx: Optional[int] = None,
     ) -> torch.Tensor:
         """PagedAttention forward pass.
 
@@ -247,11 +248,13 @@ class PagedAttention(nn.Module):
             if int(torch.cuda.current_device()) == 0:
                 print("Copy to CPU: ", time.perf_counter() - to_cpu_start)
             
-            directory_path = './key_cache/'
-            files = os.listdir(directory_path)
-            indices = [int(file.strip('.pt').split('-')[1]) for file in files if file.startswith(f'gpu_{gpu_index}_tensor')]
-            prev_layer = max(indices) if indices else 0
-            cur_layer = prev_layer + 1
+            # directory_path = './key_cache/'
+            # files = os.listdir(directory_path)
+            # indices = [int(file.strip('.pt').split('-')[1]) for file in files if file.startswith(f'gpu_{gpu_index}_tensor')]
+            # prev_layer = max(indices) if indices else 0
+            if layer_idx is None:
+                print("layer idx is not configured")
+            cur_layer = layer_idx if layer_idx else 0
             pt_file_path = f'gpu_{gpu_index}_tensor-{cur_layer}.pt'
             torch.save(tensors_on_cpu[gpu_index], './key_cache/' + pt_file_path)
             torch.save(value_on_cpu[gpu_index], './value_cache/' + pt_file_path)
