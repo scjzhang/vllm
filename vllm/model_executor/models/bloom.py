@@ -112,13 +112,14 @@ class BloomAttention(nn.Module):
         kv_cache: KVCache,
         input_metadata: InputMetadata,
         cache_event: Optional[torch.cuda.Event],
+        layer_idx: Optional[int] = None, 
     ) -> torch.Tensor:
         del position_ids  # Unused.
         qkv, _ = self.query_key_value(hidden_states)
         q, k, v = qkv.chunk(chunks=3, dim=-1)
         k_cache, v_cache = kv_cache
         attn_output = self.attn(q, k, v, k_cache, v_cache, input_metadata,
-                                cache_event)
+                                cache_event, layer_idx=layer_idx)
         output, _ = self.dense(attn_output)
         return output
 
