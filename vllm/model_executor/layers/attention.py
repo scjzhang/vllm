@@ -218,8 +218,6 @@ class PagedAttention(nn.Module):
                 value[:num_prompt_tokens],
                 input_metadata,
             )
-        if int(torch.cuda.current_device()) == 0:
-            print("layers before cache op: ", self.layers, num_prompt_tokens)
         # Wait until the cache op is done.
         if cache_event is not None:
             cache_event.wait()
@@ -251,11 +249,14 @@ class PagedAttention(nn.Module):
             tensors_on_cpu = {}
             value_on_cpu = {}
             gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
+            to_cpu_start = time.time()
             tensors_on_cpu[gpu_index] = key[:num_valid_tokens].to('cpu')
             value_on_cpu[gpu_index] = value[:num_valid_tokens].to('cpu')
+            if int(torch.cuda.current_device()) == 0:
+                print("copy to cpu: ", time.time() - to_cpu_start)
             txt_file_path = f'gpu_{gpu_index}_tensor.txt'
             pt_file_path = f'gpu_{gpu_index}_tensor.pt'
-            torch.set_printoptions(profile="full")
+            # torch.set_printoptions(profile="full")
             #for idx, key_tensor in tensors_on_cpu.items():
                 #with open('./key_cache/' + txt_file_path, 'w') as txt_file:
                 #    txt_file.write(str(key_tensor))

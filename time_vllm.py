@@ -12,6 +12,7 @@ parser.add_argument("--tensor_para_size", default=8, type=int, help="tensor para
 parser.add_argument("--iters", default=5, type=int, help="number of iterations")
 parser.add_argument("--greedy", action='store_true', help="greedy generation mode - temperature=0")
 parser.add_argument("--print_output", action='store_true', help="print generated output text")
+parser.add_argument("--test_perf", action='store_true', help="test performance to include warmup runs")
 args = parser.parse_args()
 
 max_model_len = args.max_new_tokens + args.input_size + 2
@@ -36,7 +37,8 @@ else:
     sampling_params = SamplingParams(max_tokens=args.max_new_tokens)
 
 # warmup
-outputs = llm.generate(prompts, sampling_params)
+if args.test_perf:
+    outputs = llm.generate(prompts, sampling_params)
 
 for i in range(args.iters):
     start = time.time()
