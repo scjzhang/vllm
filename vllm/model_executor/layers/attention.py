@@ -228,6 +228,7 @@ class PagedAttention(nn.Module):
         # When key_cache and value_cache are not provided, the new key
         # and value vectors will not be cached.
         num_valid_tokens = input_metadata.num_valid_tokens
+        print(input_metadata.num_prompt_tokens, input_metadata.num_valid_tokens)
         if (num_valid_tokens > 0 and key_cache is not None
                 and value_cache is not None):
             # The stride is 3 because the key and value are sliced from qkv.
@@ -324,7 +325,7 @@ class PagedAttention(nn.Module):
                 #with open('./value_cache/' + txt_file_path, 'w') as txt_file:
                 #    txt_file.write(str(value_tensor))
                 #torch.save(value_tensor, './value_cache/' + pt_file_path)
-
+        print(input_metadata.num_prompt_tokens, input_metadata.num_generation_tokens)
         if input_metadata.num_generation_tokens > 0:
             # Decoding run.
             assert input_metadata.num_prompt_tokens == 0
