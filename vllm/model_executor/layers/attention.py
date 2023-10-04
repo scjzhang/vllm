@@ -255,7 +255,7 @@ class PagedAttention(nn.Module):
             cur_layer = layer_idx if layer_idx else 0
             filename = f'gpu_{gpu_index}_compressed-{cur_layer}'
             # with bz2.open(filename, "wb") as outfile:
-            np.save(outfile, tensors_output)
+            np.save(filename, tensors_output)
             
             # with bz2.open(filename, "rb") as infile:
             with open(filename, "rb") as infile:
