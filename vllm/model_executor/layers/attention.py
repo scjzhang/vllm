@@ -207,6 +207,7 @@ class PagedAttention(nn.Module):
         output = torch.empty_like(query)
         # Compute the attention op for prompts.
         num_prompt_tokens = input_metadata.num_prompt_tokens
+        print(input_metadata.num_prompt_tokens, input_metadata.num_generation_tokens)
         if num_prompt_tokens > 0:
             # Prompt run.
             # if int(torch.cuda.current_device()) == 0:
@@ -242,45 +243,45 @@ class PagedAttention(nn.Module):
             value_shape = value_to_cache.shape
             gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
 
-            deltas = np.float16(8192)
-            tensors_output = key_to_cache.cpu().numpy().astype(np.float16).flatten()
-            tensors_output += deltas
-            if layer_idx is None:
-                print("layer idx is not configured")
-            cur_layer = layer_idx if layer_idx else 0
-            filename = f'./compressed_key_cache/gpu_{gpu_index}_compressed-{cur_layer}'
-            with bz2.open(filename, 'wb') as outfile:
-                np.save(outfile, tensors_output)
+            # deltas = np.float16(8192)
+            # tensors_output = key_to_cache.cpu().numpy().astype(np.float16).flatten()
+            # tensors_output += deltas
+            # if layer_idx is None:
+            #     print("layer idx is not configured")
+            # cur_layer = layer_idx if layer_idx else 0
+            # filename = f'./compressed_key_cache/gpu_{gpu_index}_compressed-{cur_layer}'
+            # with bz2.open(filename, 'wb') as outfile:
+            #     np.save(outfile, tensors_output)
 
-            with bz2.open(filename, "rb") as infile:
-                tensors_input = np.load(infile)
-                tensors_input -= deltas
-                tensors_input = tensors_input.astype(np.float16)
-                tensors_input = torch.from_numpy(tensors_input)
-                tensors_input = torch.reshape(tensors_input, key_shape)
+            # with bz2.open(filename, "rb") as infile:
+            #     tensors_input = np.load(infile)
+            #     tensors_input -= deltas
+            #     tensors_input = tensors_input.astype(np.float16)
+            #     tensors_input = torch.from_numpy(tensors_input)
+            #     tensors_input = torch.reshape(tensors_input, key_shape)
 
-            device = torch.device(f"cuda:{str(gpu_index)}")
-            key_to_cache = tensors_input.to(device)
-            torch.cuda.synchronize()
+            # device = torch.device(f"cuda:{str(gpu_index)}")
+            # key_to_cache = tensors_input.to(device)
+            # torch.cuda.synchronize()
 
-            value_output = value_to_cache.cpu().numpy()
-            if gpu_index == 0:
-                print(value_output.shape)
-            value_output = value_output.astype(np.float16).flatten()
-            value_output += deltas
-            filename = f'./compressed_value_cache/gpu_{gpu_index}_compressed-{cur_layer}'
-            with bz2.open(filename, 'wb') as outfile:
-                np.save(outfile, value_output)
+            # value_output = value_to_cache.cpu().numpy()
+            # if gpu_index == 0:
+            #     print(value_output.shape)
+            # value_output = value_output.astype(np.float16).flatten()
+            # value_output += deltas
+            # filename = f'./compressed_value_cache/gpu_{gpu_index}_compressed-{cur_layer}'
+            # with bz2.open(filename, 'wb') as outfile:
+            #     np.save(outfile, value_output)
 
-            with bz2.open(filename, "rb") as infile:
-                value_input = np.load(infile)
-                value_input -= deltas
-                value_input = value_input.astype(np.float16)
-                value_input = torch.from_numpy(value_input)
-                value_input = torch.reshape(value_input, value_shape)
+            # with bz2.open(filename, "rb") as infile:
+            #     value_input = np.load(infile)
+            #     value_input -= deltas
+            #     value_input = value_input.astype(np.float16)
+            #     value_input = torch.from_numpy(value_input)
+            #     value_input = torch.reshape(value_input, value_shape)
 
-            value_to_cache = value_input.to(device)
-            torch.cuda.synchronize()
+            # value_to_cache = value_input.to(device)
+            # torch.cuda.synchronize()
 
             # to_cpu_start = time.perf_counter()
             # gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
