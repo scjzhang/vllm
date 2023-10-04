@@ -257,11 +257,11 @@ class PagedAttention(nn.Module):
                 print("layer idx is not configured")
             cur_layer = layer_idx if layer_idx else 0
             filename = f'gpu_{gpu_index}_compressed-{cur_layer}'
-            with open(filename, 'wb') as outfile:
+            with bz2.open(filename, 'wb') as outfile:
                 np.save(outfile, tensors_output)
 
             # with bz2.open(filename, "rb") as infile:
-            with open(filename, "rb") as infile:
+            with bz2.open(filename, "rb") as infile:
                 tensors_input = np.load(infile)
                 tensors_input -= 8192
                 tensors_input = tensors_input.astype(np.float16)
