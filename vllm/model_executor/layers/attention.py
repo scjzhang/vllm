@@ -241,7 +241,7 @@ class PagedAttention(nn.Module):
             value_to_cache = value[:num_valid_tokens]
             slot_mapping = input_metadata.slot_mapping
             key_shape = key_to_cache.shape
-            
+            print("key tensor shape:", key_shape)
             gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
             tensors_output = key_to_cache.cpu().numpy()
             tensors_output += 8192
