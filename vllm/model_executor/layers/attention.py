@@ -237,7 +237,6 @@ class PagedAttention(nn.Module):
 
             tensors_on_cpu = {}
             value_on_cpu = {}
-            tensors_output = {}
             key_to_cache = key[:num_valid_tokens]
             value_to_cache = value[:num_valid_tokens]
             slot_mapping = input_metadata.slot_mapping
