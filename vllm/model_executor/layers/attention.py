@@ -231,7 +231,7 @@ class PagedAttention(nn.Module):
                 and value_cache is not None):
             # The stride is 3 because the key and value are sliced from qkv.
             if int(torch.cuda.current_device()) == 0:
-                print("current layers: ", self.layer_idx, num_valid_tokens, num_prompt_tokens)
+                print("current layers: ", layer_idx, num_valid_tokens, num_prompt_tokens)
 
             tensors_on_cpu = {}
             value_on_cpu = {}
