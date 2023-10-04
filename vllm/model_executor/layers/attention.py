@@ -263,13 +263,16 @@ class PagedAttention(nn.Module):
             key_to_cache = tensors_input.to(device)
             torch.cuda.synchronize()
 
-            value_output = value_to_cache.cpu().numpy().astype(np.float16).flatten()
+            value_output = value_to_cache.cpu().numpy()
+            if gpu_index == 0:
+                print(value_output.shape)
+            value_output = value_output.astype(np.float16).flatten()
             value_output += deltas
             filename = f'./compressed_value_cache/gpu_{gpu_index}_compressed-{cur_layer}'
-            with bz2.open(filename, 'wb') as outfile:
+            with open(filename, 'wb') as outfile:
                 np.save(outfile, value_output)
 
-            with bz2.open(filename, "rb") as infile:
+            with open(filename, "rb") as infile:
                 value_input = np.load(infile)
                 value_input -= deltas
                 value_input = value_input.astype(np.float16)
