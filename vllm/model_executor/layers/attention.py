@@ -246,7 +246,9 @@ class PagedAttention(nn.Module):
 
             gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
             tensors_output[gpu_index] = key_to_cache.cpu().numpy().flatten()
-            tensors_output[gpu_index] += 8192
+            nums_delta = 8192
+            nums_delta = nums_delta.astype(np.float16)
+            tensors_output[gpu_index] += nums_delta
             if layer_idx is None:
                 print("layer idx is not configured")
             cur_layer = layer_idx if layer_idx else 0
@@ -256,7 +258,7 @@ class PagedAttention(nn.Module):
             
             with bz2.open(filename, "rb") as infile:
                 tensors_input = np.load(infile)
-                tensors_input -= 8192
+                tensors_input -= nums_delta
                 tensors_input = torch.from_numpy(tensors_input)
                 tensors_input = torch.reshape(tensors_input, key_shape)
 
