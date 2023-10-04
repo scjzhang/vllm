@@ -70,7 +70,6 @@ class PagedAttention(nn.Module):
         self.scale = float(scale)
         self.num_kv_heads = num_heads if num_kv_heads is None else num_kv_heads
         self.sliding_window = sliding_window
-        self.layers = 0
         assert self.num_heads % self.num_kv_heads == 0
         self.num_queries_per_kv = self.num_heads // self.num_kv_heads
         self.head_mapping = torch.repeat_interleave(
@@ -203,7 +202,6 @@ class PagedAttention(nn.Module):
         query = query.view(-1, self.num_heads, self.head_size)
         key = key.view(-1, self.num_kv_heads, self.head_size)
         value = value.view(-1, self.num_kv_heads, self.head_size)
-        self.layers += 1
 
         # Pre-allocate the output tensor.
         output = torch.empty_like(query)
@@ -233,7 +231,7 @@ class PagedAttention(nn.Module):
                 and value_cache is not None):
             # The stride is 3 because the key and value are sliced from qkv.
             if int(torch.cuda.current_device()) == 0:
-                print("current layers: ", self.layers, num_valid_tokens, num_prompt_tokens)
+                print("current layers: ", self.layer_idx, num_valid_tokens, num_prompt_tokens)
 
             tensors_on_cpu = {}
             value_on_cpu = {}
