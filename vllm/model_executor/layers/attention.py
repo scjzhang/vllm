@@ -232,8 +232,8 @@ class PagedAttention(nn.Module):
         if (num_valid_tokens > 0 and key_cache is not None
                 and value_cache is not None):
             # The stride is 3 because the key and value are sliced from qkv.
-            # if int(torch.cuda.current_device()) == 0:
-            #     print("current layers: ", self.layers, num_valid_tokens, num_prompt_tokens)
+            if int(torch.cuda.current_device()) == 0:
+                print("current layers: ", self.layers, num_valid_tokens, num_prompt_tokens)
 
             tensors_on_cpu = {}
             value_on_cpu = {}
@@ -248,13 +248,13 @@ class PagedAttention(nn.Module):
             tensors_output = key_to_cache.cpu().numpy()
             tensors_output += 8192
             tensors_output = tensors_output.astype(np.float16)
-            if gpu_index == 0:
-                print("Ouput", tensors_output.shape)
-                print("Ouput", tensors_output.dtype)
+            # if gpu_index == 0:
+            #     print("Ouput", tensors_output.shape)
+            #     print("Ouput", tensors_output.dtype)
             tensors_output = tensors_output.flatten()
-            if gpu_index == 0:
-                print("Ouput", tensors_output.shape)
-                print("Ouput", tensors_output.dtype)
+            # if gpu_index == 0:
+            #     print("Ouput", tensors_output.shape)
+            #     print("Ouput", tensors_output.dtype)
             if layer_idx is None:
                 print("layer idx is not configured")
             cur_layer = layer_idx if layer_idx else 0
