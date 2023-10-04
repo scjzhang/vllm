@@ -244,24 +244,24 @@ class PagedAttention(nn.Module):
 
 
             gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
-            tensors_output = key_to_cache.cpu().numpy().flatten()
+            tensors_output = key_to_cache.cpu().numpy().astype(np.float16).flatten()
             nums_delta = np.float16(8192)
             # astype(np.float16).
-            tensors_output += 8192
+            tensors_output += nums_delta
             if gpu_index == 0:
                 print(len(tensors_output))
             if layer_idx is None:
                 print("layer idx is not configured")
             cur_layer = layer_idx if layer_idx else 0
             filename = f'gpu_{gpu_index}_compressed-{cur_layer}'
-            with bz2.open(filename, "wb") as outfile:
-            # with open(filename, 'w') as outfile:
-                np.save(filename, tensors_output)
+            # with bz2.open(filename, "wb") as outfile:
+            with open(filename, 'w') as outfile:
+                np.save(outfile, tensors_output)
 
-            with bz2.open(filename, "rb") as infile:
-            # with open(filename, "r") as infile:
-                tensors_input = np.load(filename, allow_pickle=True)
-                tensors_input -= 8192
+            # with bz2.open(filename, "rb") as infile:
+            with open(filename, "r") as infile:
+                tensors_input = np.load(filename)
+                tensors_input -= nums_delta
                 tensors_input = torch.from_numpy(tensors_input)
                 tensors_input = torch.reshape(tensors_input, key_shape)
 
