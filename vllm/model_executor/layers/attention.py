@@ -256,11 +256,11 @@ class PagedAttention(nn.Module):
             filename = f'gpu_{gpu_index}_compressed-{cur_layer}'
             with bz2.open(filename, "wb") as outfile:
             # with open(filename, 'w') as outfile:
-                np.save(filename, tensors_output, allow_pickle=True)
+                np.save(filename, tensors_output)
 
             with bz2.open(filename, "rb") as infile:
             # with open(filename, "r") as infile:
-                tensors_input = np.load(filename)
+                tensors_input = np.load(filename, allow_pickle=True)
                 tensors_input -= 8192
                 tensors_input = torch.from_numpy(tensors_input)
                 tensors_input = torch.reshape(tensors_input, key_shape)
