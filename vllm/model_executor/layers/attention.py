@@ -245,16 +245,17 @@ class PagedAttention(nn.Module):
 
 
             gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
-            tensors_output[gpu_index] = key_to_cache.cpu().numpy().flatten()
-            nums_delta = 8192
-            nums_delta = nums_delta.astype(np.float16)
-            tensors_output[gpu_index] += nums_delta
+            tensors_output = key_to_cache.cpu().numpy().flatten()
+            nums_delta = np.float16(8192)
+            tensors_output += nums_delta
+            if gpu_index == 0:
+                print(tensors_output)
             if layer_idx is None:
                 print("layer idx is not configured")
             cur_layer = layer_idx if layer_idx else 0
             filename = f'gpu_{gpu_index}_compressed-{cur_layer}'
             with bz2.open(filename, "wb") as outfile:
-                np.save(outfile, tensors_output[gpu_index])
+                np.save(outfile, tensors_output)
             
             with bz2.open(filename, "rb") as infile:
                 tensors_input = np.load(infile)
