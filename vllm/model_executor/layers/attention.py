@@ -244,12 +244,13 @@ class PagedAttention(nn.Module):
 
 
             gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
-            tensors_output = key_to_cache.cpu().numpy().astype(np.float16).flatten()
+            tensors_output = key_to_cache.cpu().numpy()
+            if gpu_index == 0:
+                print(tensors_output.shape)
+            tensors_output = tensors_output.astype(np.float16).flatten()
             nums_delta = np.float16(8192)
             # astype(np.float16).
             tensors_output += nums_delta
-            if gpu_index == 0:
-                print(len(tensors_output))
             if layer_idx is None:
                 print("layer idx is not configured")
             cur_layer = layer_idx if layer_idx else 0
@@ -263,7 +264,12 @@ class PagedAttention(nn.Module):
                 tensors_input = np.load(filename)
                 tensors_input -= nums_delta
                 tensors_input = torch.from_numpy(tensors_input)
+                if gpu_index == 0:
+                    print("tensor input before reshape", tensors_input.shape)
                 tensors_input = torch.reshape(tensors_input, key_shape)
+
+            if gpu_index == 0:
+                print("tensor input", tensors_input.shape)
 
             device = torch.device(f"cuda:{str(gpu_index)}")
             key_to_cache = tensors_input.to(device)
