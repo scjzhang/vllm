@@ -245,7 +245,7 @@ class PagedAttention(nn.Module):
 
 
             gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
-            tensors_output = key_to_cache.cpu().numpy().flatten()
+            tensors_output = key_to_cache.cpu().numpy().astype(np.float16).flatten()
             nums_delta = np.float16(8192)
             tensors_output += nums_delta
             if gpu_index == 0:
