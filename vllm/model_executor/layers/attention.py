@@ -237,20 +237,22 @@ class PagedAttention(nn.Module):
 
             tensors_on_cpu = {}
             value_on_cpu = {}
+            tensors_output = {}
             key_to_cache = key[:num_valid_tokens]
             value_to_cache = value[:num_valid_tokens]
             slot_mapping = input_metadata.slot_mapping
             key_shape = key_to_cache.shape
-            tensors_output = key_to_cache.cpu().numpy().flatten()
-            tensors_output += 8192
+
 
             gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
+            tensors_output[gpu_index] = key_to_cache.cpu().numpy().flatten()
+            tensors_output[gpu_index] += 8192
             if layer_idx is None:
                 print("layer idx is not configured")
             cur_layer = layer_idx if layer_idx else 0
-            filename = f'gpu_{gpu_index}_compressed-{cur_layer}.pt'
+            filename = f'gpu_{gpu_index}_compressed-{cur_layer}'
             with bz2.open(filename, "wb") as outfile:
-                np.save(outfile, tensors_output)
+                np.save(outfile, tensors_output[gpu_index])
             
             with bz2.open(filename, "rb") as infile:
                 tensors_input = np.load(infile)
