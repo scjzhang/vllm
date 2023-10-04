@@ -239,40 +239,44 @@ class PagedAttention(nn.Module):
             value_to_cache = value[:num_valid_tokens]
             slot_mapping = input_metadata.slot_mapping
             key_shape = key_to_cache.shape
+            value_shape = value_to_cache.shape
             gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
-            # if gpu_index == 0:
-            #     print("valid tokens:", num_valid_tokens)
-            #     print("key tensor shape:", key_shape)
+
+            deltas = np.float16(8192)
             tensors_output = key_to_cache.cpu().numpy().astype(np.float16).flatten()
-            tensors_output += 8192
-            # tensors_output = tensors_output.
-            # if gpu_index == 0:
-            #     print("Ouput", tensors_output.shape)
-            #     print("Ouput", tensors_output.dtype)
-            # tensors_output = tensors_output
-            # if gpu_index == 0:
-            #     print("Ouput", tensors_output.shape)
-            #     print("Ouput", tensors_output.dtype)
+            tensors_output += deltas
             if layer_idx is None:
                 print("layer idx is not configured")
             cur_layer = layer_idx if layer_idx else 0
-            filename = f'gpu_{gpu_index}_compressed-{cur_layer}'
-            with open(filename, 'wb') as outfile:
+            filename = f'./compressed_key_cache/gpu_{gpu_index}_compressed-{cur_layer}'
+            with bz2.open(filename, 'wb') as outfile:
                 np.save(outfile, tensors_output)
 
-            # with bz2.open(filename, "rb") as infile:
-            with open(filename, "rb") as infile:
+            with bz2.open(filename, "rb") as infile:
                 tensors_input = np.load(infile)
-                tensors_input -= 8192
+                tensors_input -= deltas
                 tensors_input = tensors_input.astype(np.float16)
                 tensors_input = torch.from_numpy(tensors_input)
                 tensors_input = torch.reshape(tensors_input, key_shape)
-            # if gpu_index == 0:
-            #     print("Input", tensors_input.shape)
-            #     print("Input", tensors_input.dtype)
 
             device = torch.device(f"cuda:{str(gpu_index)}")
             key_to_cache = tensors_input.to(device)
+            torch.cuda.synchronize()
+
+            value_output = value_to_cache.cpu().numpy().astype(np.float16).flatten()
+            value_output += deltas
+            filename = f'./compressed_value_cache/gpu_{gpu_index}_compressed-{cur_layer}'
+            with bz2.open(filename, 'wb') as outfile:
+                np.save(outfile, value_output)
+
+            with bz2.open(filename, "rb") as infile:
+                value_input = np.load(infile)
+                value_input -= deltas
+                value_input = value_input.astype(np.float16)
+                value_input = torch.from_numpy(value_input)
+                value_input = torch.reshape(value_input, value_shape)
+
+            value_to_cache = value_input.to(device)
             torch.cuda.synchronize()
 
             # to_cpu_start = time.perf_counter()
