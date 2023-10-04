@@ -269,10 +269,10 @@ class PagedAttention(nn.Module):
             value_output = value_output.astype(np.float16).flatten()
             value_output += deltas
             filename = f'./compressed_value_cache/gpu_{gpu_index}_compressed-{cur_layer}'
-            with open(filename, 'wb') as outfile:
+            with bz2.open(filename, 'wb') as outfile:
                 np.save(outfile, value_output)
 
-            with open(filename, "rb") as infile:
+            with bz2.open(filename, "rb") as infile:
                 value_input = np.load(infile)
                 value_input -= deltas
                 value_input = value_input.astype(np.float16)
