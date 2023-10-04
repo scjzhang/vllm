@@ -249,7 +249,7 @@ class PagedAttention(nn.Module):
             nums_delta = np.float16(8192)
             tensors_output += nums_delta
             if gpu_index == 0:
-                print(tensors_output)
+                print(len(tensors_output))
             if layer_idx is None:
                 print("layer idx is not configured")
             cur_layer = layer_idx if layer_idx else 0
