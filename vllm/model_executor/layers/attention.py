@@ -230,8 +230,8 @@ class PagedAttention(nn.Module):
         if (num_valid_tokens > 0 and key_cache is not None
                 and value_cache is not None):
             # The stride is 3 because the key and value are sliced from qkv.
-            if int(torch.cuda.current_device()) == 0:
-                print("current layers: ", layer_idx, num_valid_tokens, num_prompt_tokens)
+            # if int(torch.cuda.current_device()) == 0:
+            #     print("current layers: ", layer_idx, num_valid_tokens, num_prompt_tokens)
 
             tensors_on_cpu = {}
             value_on_cpu = {}
@@ -240,16 +240,16 @@ class PagedAttention(nn.Module):
             slot_mapping = input_metadata.slot_mapping
             key_shape = key_to_cache.shape
             gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
-            if gpu_index == 0:
-                print("valid tokens:", num_valid_tokens)
-                print("key tensor shape:", key_shape)
-            tensors_output = key_to_cache.cpu().numpy()
+            # if gpu_index == 0:
+            #     print("valid tokens:", num_valid_tokens)
+            #     print("key tensor shape:", key_shape)
+            tensors_output = key_to_cache.cpu().numpy().astype(np.float16).flatten()
             tensors_output += 8192
-            tensors_output = tensors_output.astype(np.float16)
+            # tensors_output = tensors_output.
             # if gpu_index == 0:
             #     print("Ouput", tensors_output.shape)
             #     print("Ouput", tensors_output.dtype)
-            tensors_output = tensors_output.flatten()
+            # tensors_output = tensors_output
             # if gpu_index == 0:
             #     print("Ouput", tensors_output.shape)
             #     print("Ouput", tensors_output.dtype)
@@ -267,9 +267,9 @@ class PagedAttention(nn.Module):
                 tensors_input = tensors_input.astype(np.float16)
                 tensors_input = torch.from_numpy(tensors_input)
                 tensors_input = torch.reshape(tensors_input, key_shape)
-            if gpu_index == 0:
-                print("Input", tensors_input.shape)
-                print("Input", tensors_input.dtype)
+            # if gpu_index == 0:
+            #     print("Input", tensors_input.shape)
+            #     print("Input", tensors_input.dtype)
 
             device = torch.device(f"cuda:{str(gpu_index)}")
             key_to_cache = tensors_input.to(device)
