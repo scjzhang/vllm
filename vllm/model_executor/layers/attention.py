@@ -244,9 +244,10 @@ class PagedAttention(nn.Module):
 
 
             gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
-            tensors_output = key_to_cache.cpu().numpy().astype(np.float16).flatten()
+            tensors_output = key_to_cache.cpu().numpy().flatten()
             nums_delta = np.float16(8192)
-            tensors_output += nums_delta
+            # astype(np.float16).
+            tensors_output += 8192
             if gpu_index == 0:
                 print(len(tensors_output))
             if layer_idx is None:
@@ -260,7 +261,7 @@ class PagedAttention(nn.Module):
             with bz2.open(filename, "rb") as infile:
             # with open(filename, "r") as infile:
                 tensors_input = np.load(filename)
-                tensors_input -= nums_delta
+                tensors_input -= 8192
                 tensors_input = torch.from_numpy(tensors_input)
                 tensors_input = torch.reshape(tensors_input, key_shape)
 
