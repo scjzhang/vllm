@@ -3,6 +3,7 @@
 from vllm.engine.arg_utils import AsyncEngineArgs, EngineArgs
 from vllm.engine.async_llm_engine import AsyncLLMEngine
 from vllm.engine.llm_engine import LLMEngine
+from vllm.engine.hybrid_llm_engine import HYBRIDLLMEngine
 from vllm.engine.ray_utils import initialize_cluster
 from vllm.entrypoints.llm import LLM
 from vllm.outputs import CompletionOutput, RequestOutput
@@ -16,6 +17,7 @@ __all__ = [
     "RequestOutput",
     "CompletionOutput",
     "LLMEngine",
+    "HYBRIDLLMEngine",
     "EngineArgs",
     "AsyncLLMEngine",
     "AsyncEngineArgs",
