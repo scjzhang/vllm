@@ -7,6 +7,7 @@ import bz2
 import os
 import numpy as np
 import torch.nn as nn
+from datetime import datetime
 from xformers import ops as xops
 from xformers.ops.fmha.attn_bias import (BlockDiagonalCausalMask,
                                          LowerTriangularMaskWithTensorBias)
@@ -167,6 +168,31 @@ class PagedAttention(nn.Module):
             None,  # alibi_slopes
         )
 
+    COMPRESS_DELTA = np.float16(512)
+
+    def output_compressed_tensors(self, tensors, filename):
+        """
+        Output compressed tensors into a file.
+        """
+        tensors_output = tensors.numpy()
+        tensors_output = tensors_output.flatten()
+        tensors_output = tensors_output + self.COMPRESS_DELTA
+        tensors_output = tensors_output.astype(np.float16)
+        with bz2.open(filename, 'wb') as output_file:
+            np.save(output_file, tensors_output)
+
+    def input_compressed_tensors(self, filename, tensor_shape):
+        """
+        Input compressed tensors.
+        """
+        with bz2.open(filename, "rb") as input_file:
+            tensors_input = np.load(input_file)
+            tensors_input = tensors_input - self.COMPRESS_DELTA
+            tensors_input = tensors_input.astype(np.float16)
+            tensors_input = torch.from_numpy(tensors_input)
+            tensors_input = torch.reshape(tensors_input, tensor_shape)
+        return tensors_input
+
     def forward(
         self,
         query: torch.Tensor,
@@ -205,14 +231,14 @@ class PagedAttention(nn.Module):
 
         # Pre-allocate the output tensor.
         output = torch.empty_like(query)
+
         # Compute the attention op for prompts.
         num_prompt_tokens = input_metadata.num_prompt_tokens
-        # print("checking generation tokens", input_metadata.num_prompt_tokens, input_metadata.num_generation_tokens)
         if num_prompt_tokens > 0:
             # Prompt run.
             # if int(torch.cuda.current_device()) == 0:
             #     print("layers prompt run: ", self.layers, num_prompt_tokens)
-            assert input_metadata.num_generation_tokens == 0
+            #ESHA assert input_metadata.num_generation_tokens == 0
             self.set_attn_bias(input_metadata, dtype=query.dtype)
             self.multi_query_kv_attention(
                 output[:num_prompt_tokens],
@@ -221,84 +247,55 @@ class PagedAttention(nn.Module):
                 value[:num_prompt_tokens],
                 input_metadata,
             )
+
         # Wait until the cache op is done.
         if cache_event is not None:
             cache_event.wait()
+
+        # print("checking generation tokens", input_metadata.num_prompt_tokens, input_metadata.num_generation_tokens)
+        # print("Input metadata:", input_metadata.prompt_lens)
+        # print("Checking valid tokens", input_metadata.num_valid_tokens)
+
         # Reshape the keys and values and store them in the cache.
         # When key_cache and value_cache are not provided, the new key
         # and value vectors will not be cached.
         num_valid_tokens = input_metadata.num_valid_tokens
-        # print("checking valid tokens", input_metadata.num_valid_tokens)
         if (num_valid_tokens > 0 and key_cache is not None
                 and value_cache is not None):
             # The stride is 3 because the key and value are sliced from qkv.
-            # if int(torch.cuda.current_device()) == 0:
-            #     print("current layers: ", layer_idx, num_valid_tokens, num_prompt_tokens)
-
-            tensors_on_cpu = {}
-            value_on_cpu = {}
             key_to_cache = key[:num_valid_tokens]
             value_to_cache = value[:num_valid_tokens]
             slot_mapping = input_metadata.slot_mapping
-            key_shape = key_to_cache.shape
-            value_shape = value_to_cache.shape
-            gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
 
-            # deltas = np.float16(8192)
-            # tensors_output = key_to_cache.cpu().numpy().astype(np.float16).flatten()
-            # tensors_output += deltas
-            # if layer_idx is None:
-            #     print("layer idx is not configured")
-            # cur_layer = layer_idx if layer_idx else 0
-            # filename = f'./compressed_key_cache/gpu_{gpu_index}_compressed-{cur_layer}'
-            # with bz2.open(filename, 'wb') as outfile:
-            #     np.save(outfile, tensors_output)
+            # Handle KV cache compression
+            if True:
+                key_shape = key_to_cache.shape
+                value_shape = value_to_cache.shape
+                gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
+                cur_layer = layer_idx if layer_idx else 0
 
-            # with bz2.open(filename, "rb") as infile:
-            #     tensors_input = np.load(infile)
-            #     tensors_input -= deltas
-            #     tensors_input = tensors_input.astype(np.float16)
-            #     tensors_input = torch.from_numpy(tensors_input)
-            #     tensors_input = torch.reshape(tensors_input, key_shape)
+                # K compress/decompress
+                key_filename = f'./compressed_key_cache/gpu_{gpu_index}_compressed-{cur_layer}.pt.bz2'
+                self.output_compressed_tensors(key_to_cache.cpu(), key_filename)
+                key_tensors_input = self.input_compressed_tensors(key_filename, key_shape)
 
-            # device = torch.device(f"cuda:{str(gpu_index)}")
-            # key_to_cache = tensors_input.to(device)
-            # torch.cuda.synchronize()
+                # V compress/decompress
+                val_filename = f'./compressed_value_cache/gpu_{gpu_index}_compressed-{cur_layer}'
+                self.output_compressed_tensors(value_to_cache.cpu(), val_filename)
+                value_tensors_input = self.input_compressed_tensors(val_filename, value_shape)
 
-            # value_output = value_to_cache.cpu().numpy()
-            # if gpu_index == 0:
-            #     print(value_output.shape)
-            # value_output = value_output.astype(np.float16).flatten()
-            # value_output += deltas
-            # filename = f'./compressed_value_cache/gpu_{gpu_index}_compressed-{cur_layer}'
-            # with bz2.open(filename, 'wb') as outfile:
-            #     np.save(outfile, value_output)
+                #print(f"[{datetime.now()}] GPU{gpu_index}: {key_filename} Original:{2*len(key_to_cache.flatten())}B Compressed:{os.path.getsize(key_filename)}B")
+                #print(f"[{datetime.now()}] GPU{gpu_index}: Output:{key_to_cache.shape} Input:{key_tensors_input.shape}")
 
-            # with bz2.open(filename, "rb") as infile:
-            #     value_input = np.load(infile)
-            #     value_input -= deltas
-            #     value_input = value_input.astype(np.float16)
-            #     value_input = torch.from_numpy(value_input)
-            #     value_input = torch.reshape(value_input, value_shape)
+                #print(f"[{datetime.now()}] GPU{gpu_index}: {val_filename} Original:{2*len(value_to_cache.flatten())}B Compressed:{os.path.getsize(val_filename)}B")
+                #print(f"[{datetime.now()}] GPU{gpu_index}: Output:{value_to_cache.shape} Input:{value_tensors_input.shape}")
 
-            # value_to_cache = value_input.to(device)
-            # torch.cuda.synchronize()
-
-            # to_cpu_start = time.perf_counter()
-            # gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
-            # tensors_on_cpu[gpu_index] = key[:num_valid_tokens].to('cpu')
-            # value_on_cpu[gpu_index] = value[:num_valid_tokens].to('cpu')
-
-            # torch.cuda.synchronize()
-            # if int(torch.cuda.current_device()) == 0:
-            #     print("Copy to CPU: ", time.perf_counter() - to_cpu_start)
-            # if layer_idx is None:
-            #     print("layer idx is not configured")
-            # cur_layer = layer_idx if layer_idx else 0
-            # pt_file_path = f'gpu_{gpu_index}_tensor-{cur_layer}.pt'
-
-            # torch.save(tensors_on_cpu[gpu_index], './key_cache/' + pt_file_path)
-            # torch.save(value_on_cpu[gpu_index], './value_cache/' + pt_file_path)
+                # Send KV cache to the GPU
+                device = torch.device(f"cuda:{str(gpu_index)}")
+                key_to_cache = key_tensors_input.to(device)
+                torch.cuda.synchronize()
+                value_to_cache = value_tensors_input.to(device)
+                torch.cuda.synchronize()
 
             if input_metadata.to_cache is not None:
                 key_to_cache = key_to_cache[input_metadata.to_cache]
@@ -313,22 +310,9 @@ class PagedAttention(nn.Module):
                 slot_mapping,
             )
 
-
-            # txt_file_path = f'gpu_{gpu_index}_tensor.txt'
-            # torch.set_printoptions(profile="full")
-            # for idx, key_tensor in tensors_on_cpu.items():
-
-                #with open('./key_cache/' + txt_file_path, 'w') as txt_file:
-                #    txt_file.write(str(key_tensor))
-                #torch.save(key_tensor, './key_cache/' + pt_file_path)
-            #for idx, value_tensor in value_on_cpu.items():
-                #with open('./value_cache/' + txt_file_path, 'w') as txt_file:
-                #    txt_file.write(str(value_tensor))
-                #torch.save(value_tensor, './value_cache/' + pt_file_path)
-        # print("checking generation tokens again", input_metadata.num_prompt_tokens, input_metadata.num_generation_tokens)
         if input_metadata.num_generation_tokens > 0:
             # Decoding run.
-            assert input_metadata.num_prompt_tokens == 0
+            # ESHA assert input_metadata.num_prompt_tokens == 0
             assert key_cache is not None and value_cache is not None, (
                 "key_cache and value_cache must be provided when "
                 "generating tokens.")
