@@ -202,6 +202,7 @@ class PagedAttention(nn.Module):
         value_cache: Optional[torch.Tensor],
         input_metadata: InputMetadata,
         cache_event: Optional[torch.cuda.Event],
+        config = None,
         layer_idx: Optional[int] = None,
     ) -> torch.Tensor:
         """PagedAttention forward pass.
@@ -268,7 +269,7 @@ class PagedAttention(nn.Module):
             slot_mapping = input_metadata.slot_mapping
 
             # Handle KV cache compression
-            if True:
+            if config is not None and hasattr(config, "compress_delta") and config.compress_delta != 0:
                 key_shape = key_to_cache.shape
                 value_shape = value_to_cache.shape
                 gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
