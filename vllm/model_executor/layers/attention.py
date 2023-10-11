@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 import torch
 import time
 import bz2
+import zfpy
 import os
 import numpy as np
 import torch.nn as nn
@@ -168,7 +169,7 @@ class PagedAttention(nn.Module):
             None,  # alibi_slopes
         )
 
-    def output_compressed_tensors(self, tensors, filename, compress_delta=0):
+    def output_compressed_tensors_bz2(self, tensors, filename, compress_delta=0):
         """
         Output compressed tensors into a file.
         """
@@ -179,7 +180,7 @@ class PagedAttention(nn.Module):
         with bz2.open(filename, 'wb') as output_file:
             np.save(output_file, tensors_output)
 
-    def input_compressed_tensors(self, filename, tensor_shape, compress_delta=0):
+    def input_compressed_tensors_bz2(self, filename, tensor_shape, compress_delta=0):
         """
         Input compressed tensors.
         """
@@ -190,6 +191,24 @@ class PagedAttention(nn.Module):
             tensors_input = torch.from_numpy(tensors_input)
             tensors_input = torch.reshape(tensors_input, tensor_shape)
         return tensors_input
+
+    def output_compressed_tensors_zfpy(self, tensors, filename, tolerance=2.0):
+        tensors_output = tensors.numpy().astype(np.float32)
+        compressed_data = zfpy.compress_numpy(tensors_output, tolerance=tolerance)
+        with open(filename, 'wb') as output_file:
+            output_file.write(compressed_data)
+
+    def input_compressed_tensors_zfpy(self, filename):
+        with open(filename, "rb") as input_file:
+            tensors_input = zfpy.decompress_numpy(input_file.read()).astype(np.float16)
+            tensors_input = torch.from_numpy(tensors_input)
+        return tensors_input
+
+    def output_compressed_tensors(self, tensors, filename, compress_delta=0):
+        return self.output_compressed_tensors_zfpy(tensors, filename)
+
+    def input_compressed_tensors(self, filename, tensor_shape, compress_delta=0):
+        return self.input_compressed_tensors_zfpy(filename)
 
     def forward(
         self,
@@ -268,45 +287,108 @@ class PagedAttention(nn.Module):
 
             # Handle KV cache compression
             if config is not None and hasattr(config, "compress_delta") and config.compress_delta != 0:
-                try:
-                    t0 = datetime.now()
+                # Handle KV cache compression (bzip2)
+                if config.compress_delta > 0:
+                    try:
+                        t0 = datetime.now()
 
-                    key_shape = key_to_cache.shape
-                    val_shape = value_to_cache.shape
-                    gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
-                    cur_layer = layer_idx if layer_idx else 0
+                        key_shape = key_to_cache.shape
+                        val_shape = value_to_cache.shape
+                        gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
+                        cur_layer = layer_idx if layer_idx else 0
 
-                    # K compress/decompress
-                    key_filename = f'./kv_cache/key_{gpu_index}_{cur_layer:03d}.pt.bz2'
-                    self.output_compressed_tensors(key_to_cache.cpu(), key_filename, compress_delta=config.compress_delta)
-                    key_tensors_input = self.input_compressed_tensors(key_filename, key_shape, compress_delta=config.compress_delta)
+                        t1 = datetime.now()
 
-                    # V compress/decompress
-                    val_filename = f'./kv_cache/val_{gpu_index}_{cur_layer:03d}.pt.bz2'
-                    self.output_compressed_tensors(value_to_cache.cpu(), val_filename, compress_delta=config.compress_delta)
-                    val_tensors_input = self.input_compressed_tensors(val_filename, val_shape, compress_delta=config.compress_delta)
+                        # K compress/decompress
+                        key_filename = f'./kv_cache/key_{gpu_index}_{cur_layer:03d}.pt.bz2'
+                        self.output_compressed_tensors_bz2(key_to_cache.cpu(), key_filename, compress_delta=config.compress_delta)
+                        t2 = datetime.now()
+                        key_tensors_input = self.input_compressed_tensors_bz2(key_filename, key_shape, compress_delta=config.compress_delta)
+                        t3 = datetime.now()
 
-                    # Send KV cache to the GPU
-                    device = torch.device(f"cuda:{str(gpu_index)}")
-                    key_to_cache = key_tensors_input.to(device)
-                    torch.cuda.synchronize()
-                    value_to_cache = val_tensors_input.to(device)
-                    torch.cuda.synchronize()
+                        # V compress/decompress
+                        val_filename = f'./kv_cache/val_{gpu_index}_{cur_layer:03d}.pt.bz2'
+                        self.output_compressed_tensors_bz2(value_to_cache.cpu(), val_filename, compress_delta=config.compress_delta)
+                        t4 = datetime.now()
+                        val_tensors_input = self.input_compressed_tensors_bz2(val_filename, val_shape, compress_delta=config.compress_delta)
+                        t5 = datetime.now()
 
-                    # Some logging
-                    if gpu_index == 0:
-                        total_milliseconds = (datetime.now()-t0).total_seconds() * 1000.0
-                        assert key_to_cache.shape == key_tensors_input.shape
-                        assert value_to_cache.shape == val_tensors_input.shape
-                        key_cache_size = 2*len(key_to_cache.flatten())
-                        val_cache_size = 2*len(value_to_cache.flatten())
-                        key_cache_compressed_size = os.path.getsize(key_filename)
-                        val_cache_compressed_size = os.path.getsize(val_filename)
-                        print(f"[{datetime.now()}] GPU{gpu_index}: K {key_filename} Original:{key_cache_size/1024:5.1f}KB Compressed:{key_cache_compressed_size/1024:5.1f}KB[{100.0*key_cache_compressed_size/key_cache_size:.1f}%] {key_to_cache.shape}")
-                        print(f"[{datetime.now()}] GPU{gpu_index}: V {val_filename} Original:{val_cache_size/1024:5.1f}KB Compressed:{val_cache_compressed_size/1024:5.1f}KB[{100.0*val_cache_compressed_size/val_cache_size:.1f}%] {value_to_cache.shape}")
-                        print(f"[{datetime.now()}] GPU{gpu_index}: {total_milliseconds:.2f} ms")
-                except Exception as ex:
-                    print("Processing KV cache", ex)
+                        # Send KV cache to the GPU
+                        device = torch.device(f"cuda:{str(gpu_index)}")
+                        key_to_cache = key_tensors_input.to(device)
+                        torch.cuda.synchronize()
+                        value_to_cache = val_tensors_input.to(device)
+                        torch.cuda.synchronize()
+
+                        # Some logging
+                        if gpu_index == 0:
+                            total_milliseconds = (datetime.now() - t0).total_seconds() * 1000.0
+                            assert key_to_cache.shape == key_tensors_input.shape
+                            assert value_to_cache.shape == val_tensors_input.shape
+                            key_cache_size = 2*len(key_to_cache.flatten())
+                            val_cache_size = 2*len(value_to_cache.flatten())
+                            key_cache_compressed_size = os.path.getsize(key_filename)
+                            val_cache_compressed_size = os.path.getsize(val_filename)
+                            key_mae = np.average(np.abs(key_to_cache.cpu() - key_tensors_input))
+                            val_mae = np.average(np.abs(value_to_cache.cpu() - val_tensors_input))
+                            print(f"[{datetime.now()}] GPU{gpu_index}: K {key_filename} {key_cache_size/1024:5.1f}KB->{key_cache_compressed_size/1024:6.1f}KB[{100.0*key_cache_compressed_size/key_cache_size:4.1f}%] {key_to_cache.shape} {(t2-t1).total_seconds() * 1000.0:.2f}+{(t3-t2).total_seconds() * 1000.0:.2f}ms MAE:{key_mae:.3f}")
+                            print(f"[{datetime.now()}] GPU{gpu_index}: V {val_filename} {val_cache_size/1024:5.1f}KB->{val_cache_compressed_size/1024:6.1f}KB[{100.0*val_cache_compressed_size/val_cache_size:4.1f}%] {value_to_cache.shape} {(t4-t3).total_seconds() * 1000.0:.2f}+{(t5-t4).total_seconds() * 1000.0:.2f}ms MAE:{val_mae:.3f}")
+                            print(f"[{datetime.now()}] GPU{gpu_index}: BZ2 {total_milliseconds:.2f} ms MAE:{key_mae} {val_mae}")
+                    except Exception as ex:
+                        print("Processing KV cache", ex)
+
+                # Handle KV cache compression (zfpy)
+                else:
+                    try:
+                        t0 = datetime.now()
+
+                        key_shape = key_to_cache.shape
+                        val_shape = value_to_cache.shape
+                        gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
+                        cur_layer = layer_idx if layer_idx else 0
+
+                        t1 = datetime.now()
+
+                        # K compress/decompress
+                        key_filename = f'./kv_cache/key_{gpu_index}_{cur_layer:03d}.pt.zfpy'
+                        key_tensors = key_to_cache.cpu()
+                        self.output_compressed_tensors_zfpy(key_tensors, key_filename, tolerance=-1.0 * config.compress_delta)
+                        t2 = datetime.now()
+                        key_tensors_input = self.input_compressed_tensors_zfpy(key_filename)
+                        t3 = datetime.now()
+
+                        # V compress/decompress
+                        val_filename = f'./kv_cache/val_{gpu_index}_{cur_layer:03d}.pt.zfpy'
+                        val_tensors = value_to_cache.cpu()
+                        self.output_compressed_tensors_zfpy(val_tensors, val_filename, tolerance=-1.0 * config.compress_delta)
+                        t4 = datetime.now()
+                        val_tensors_input = self.input_compressed_tensors_zfpy(val_filename)
+                        t5 = datetime.now()
+
+                        # Send KV cache to the GPU
+                        device = torch.device(f"cuda:{str(gpu_index)}")
+                        key_to_cache = key_tensors_input.to(device)
+                        torch.cuda.synchronize()
+                        value_to_cache = val_tensors_input.to(device)
+                        torch.cuda.synchronize()
+
+                        # Some logging
+                        if gpu_index == 0:
+                            total_milliseconds = (datetime.now() - t0).total_seconds() * 1000.0
+                            assert key_to_cache.shape == key_tensors_input.shape
+                            assert value_to_cache.shape == val_tensors_input.shape
+                            key_cache_size = 2*len(key_to_cache.flatten())
+                            val_cache_size = 2*len(value_to_cache.flatten())
+                            key_cache_compressed_size = os.path.getsize(key_filename)
+                            val_cache_compressed_size = os.path.getsize(val_filename)
+                            key_mae = np.average(np.abs(key_tensors - key_tensors_input))
+                            val_mae = np.average(np.abs(val_tensors - val_tensors_input))
+                            print(f"[{datetime.now()}] GPU{gpu_index}: K {key_filename} {key_cache_size/1024:5.1f}KB->{key_cache_compressed_size/1024:6.1f}KB[{100.0*key_cache_compressed_size/key_cache_size:4.1f}%] {key_to_cache.shape} {(t2-t1).total_seconds() * 1000.0:.2f}+{(t3-t2).total_seconds() * 1000.0:.2f}ms MAE:{key_mae:.3f}")
+                            print(f"[{datetime.now()}] GPU{gpu_index}: V {val_filename} {val_cache_size/1024:5.1f}KB->{val_cache_compressed_size/1024:6.1f}KB[{100.0*val_cache_compressed_size/val_cache_size:4.1f}%] {value_to_cache.shape} {(t4-t3).total_seconds() * 1000.0:.2f}+{(t5-t4).total_seconds() * 1000.0:.2f}ms MAE:{val_mae:.3f}")
+                            print(f"[{datetime.now()}] GPU{gpu_index}: zfpy {total_milliseconds:.2f} ms")
+                    except Exception as ex:
+                        print("Processing KV cache", ex)
+
 
             if input_metadata.to_cache is not None:
                 key_to_cache = key_to_cache[input_metadata.to_cache]
