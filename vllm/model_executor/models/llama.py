@@ -150,12 +150,14 @@ class LlamaAttention(nn.Module):
         kv_cache: KVCache,
         input_metadata: InputMetadata,
         cache_event: Optional[torch.cuda.Event],
+        config,
+        layer_idx: Optional[int] = None, 
     ) -> torch.Tensor:
         qkv, _ = self.qkv_proj(hidden_states)
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
         k_cache, v_cache = kv_cache
         attn_output = self.attn(positions, q, k, v, k_cache, v_cache,
-                                input_metadata, cache_event)
+                                input_metadata, cache_event, config, layer_idx=layer_idx)
         output, _ = self.o_proj(attn_output)
         return output
 
@@ -201,6 +203,8 @@ class LlamaDecoderLayer(nn.Module):
         kv_cache: KVCache,
         input_metadata: InputMetadata,
         cache_event: Optional[torch.cuda.Event],
+        config,
+        layer_idx: Optional[int] = None,
     ) -> torch.Tensor:
         # Self Attention
         residual = hidden_states
@@ -211,6 +215,8 @@ class LlamaDecoderLayer(nn.Module):
             kv_cache=kv_cache,
             input_metadata=input_metadata,
             cache_event=cache_event,
+            config=config,
+            layer_idx=layer_idx,
         )
         hidden_states = residual + hidden_states
 
@@ -266,6 +272,8 @@ class LlamaModel(nn.Module):
                 kv_caches[i],
                 input_metadata,
                 cache_event,
+                self.config,
+                layer_idx=i,
             )
         hidden_states = self.norm(hidden_states)
         return hidden_states
