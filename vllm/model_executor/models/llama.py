@@ -150,8 +150,8 @@ class LlamaAttention(nn.Module):
         kv_cache: KVCache,
         input_metadata: InputMetadata,
         cache_event: Optional[torch.cuda.Event],
-        config,
-        layer_idx: Optional[int] = None, 
+        config = None,
+        layer_idx: Optional[int] = None,
     ) -> torch.Tensor:
         qkv, _ = self.qkv_proj(hidden_states)
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
@@ -203,7 +203,7 @@ class LlamaDecoderLayer(nn.Module):
         kv_cache: KVCache,
         input_metadata: InputMetadata,
         cache_event: Optional[torch.cuda.Event],
-        config,
+        config = None,
         layer_idx: Optional[int] = None,
     ) -> torch.Tensor:
         # Self Attention
