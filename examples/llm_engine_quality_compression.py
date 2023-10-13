@@ -21,10 +21,17 @@ def get_prompts():
                 prompt = input_prompt_file.read()
                 prompt_ids.append(prompt_id)
                 prompts.append((prompt, sampling_param))
+            # DEBUG just take one
+            #break
     return prompts, prompt_ids
 
 
 def main(args: argparse.Namespace):
+    t0 = datetime.now()
+
+    # Test prompts from files.
+    test_prompts, test_prompt_ids = get_prompts()
+
     # Parse the CLI argument and initialize the engine.
     # --model bigscience/bloom
     # --tensor-parallel-size 8
@@ -32,8 +39,7 @@ def main(args: argparse.Namespace):
     engine_args = EngineArgs.from_cli_args(args)
     engine = LLMEngine.from_engine_args(engine_args)
 
-    # Test prompts from files.
-    test_prompts, test_prompt_ids = get_prompts()
+    t1 = datetime.now()
 
     # Run the engine by calling `engine.step()` manually.
     request_id = 0
@@ -56,13 +62,20 @@ def main(args: argparse.Namespace):
                 print(f"[{datetime.now()}] Output {req_id} {prompt_id}: {request_output.outputs[0].text}")
                 print()
 
-                # Output answer to measure quality with BARTSCore
-                model_name = engine_args.model.replace('/', '_')
-                with open(f"{data_folder_name}/output_{prompt_id}_{engine_args.compress_delta}_{model_name}.txt", "w") as output_file:
-                    output_file.write(request_output.outputs[0].text)
+                # Output answer to measure quality with quality score
+                if False:
+                    model_name = engine_args.model.replace('/', '_')
+                    with open(f"{data_folder_name}/output_{prompt_id}_{engine_args.compress_delta}_{model_name}.txt", "w") as output_file:
+                        output_file.write(request_output.outputs[0].text)
 
         if not (engine.has_unfinished_requests() or test_prompts):
             break
+
+    t2 = datetime.now()
+
+    print(f"[{datetime.now()}] Model loading: {1000.0 * (t1 - t0).total_seconds():.2f}ms")
+    print(f"[{datetime.now()}] Inference: {1000.0 * (t2 - t1).total_seconds():.2f}ms")
+    print(f"[{datetime.now()}] Total time: {1000.0 * (t2 - t0).total_seconds():.2f}ms")
 
 
 if __name__ == '__main__':
