@@ -45,9 +45,13 @@ class KVCompressMetrics():
     val_compress_kbs = 0.0
 
     def get_key_compression(self):
+        if self.key_kbs == 0:
+            return 100.0
         return 100.0 * self.key_compress_kbs / self.key_kbs
 
     def get_val_compression(self):
+        if self.val_kbs == 0:
+            return 100.0
         return 100.0 * self.val_compress_kbs / self.val_kbs
 
 
