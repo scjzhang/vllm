@@ -112,6 +112,7 @@ class BloomAttention(nn.Module):
         kv_cache: KVCache,
         input_metadata: InputMetadata,
         cache_event: Optional[torch.cuda.Event],
+        config,
         layer_idx: Optional[int] = None, 
     ) -> torch.Tensor:
         del position_ids  # Unused.
@@ -119,7 +120,7 @@ class BloomAttention(nn.Module):
         q, k, v = qkv.chunk(chunks=3, dim=-1)
         k_cache, v_cache = kv_cache
         attn_output = self.attn(q, k, v, k_cache, v_cache, input_metadata,
-                                cache_event, layer_idx=layer_idx)
+                                cache_event, config, layer_idx=layer_idx)
         output, _ = self.dense(attn_output)
         return output
 
@@ -170,6 +171,7 @@ class BloomBlock(nn.Module):
         kv_cache: KVCache,
         input_metadata: InputMetadata,
         cache_event: Optional[torch.cuda.Event],
+        config: BloomConfig,
         layer_idx: Optional[int] = None,
     ) -> torch.Tensor:
         # Layer norm at the beginning of the transformer layer.
@@ -188,6 +190,7 @@ class BloomBlock(nn.Module):
             kv_cache=kv_cache,
             input_metadata=input_metadata,
             cache_event=cache_event,
+            config=config,
             layer_idx=layer_idx
         )
         attention_output = attention_output + residual
@@ -225,6 +228,8 @@ class BloomModel(nn.Module):
         # Final Layer Norm
         self.ln_f = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_epsilon)
 
+        self.config = config
+
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -247,7 +252,8 @@ class BloomModel(nn.Module):
                 kv_caches[i],
                 input_metadata,
                 cache_event,
-                layer_idx=i
+                self.config,
+                layer_idx=i,
             )
             # if int(torch.cuda.current_device()) == 0:
             #     print("layers forward pass: ", i)

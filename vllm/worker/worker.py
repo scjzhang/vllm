@@ -2,6 +2,8 @@
 import os
 from typing import Dict, List, Tuple, Optional
 
+from datetime import datetime
+
 import torch
 import torch.distributed
 
@@ -14,6 +16,9 @@ from vllm.sampling_params import SamplingParams
 from vllm.sequence import SamplerOutput, SequenceData, SequenceGroupMetadata
 from vllm.worker.cache_engine import CacheEngine
 from vllm.utils import get_gpu_memory, get_max_shared_memory_bytes
+
+from vllm.model_executor.layers.attention import KVCompressMetrics
+from vllm.model_executor.layers.attention import kv_compress_metrics
 
 
 class Worker:
@@ -325,6 +330,14 @@ class Worker:
             input_metadata=input_metadata,
             cache_events=cache_events,
         )
+
+        print(f"[{datetime.now()}] KV compression metrics")
+        print(f"  worker {kv_compress_metrics.compress_num} {kv_compress_metrics.compress_ms:.2f}ms")
+        print(f"  overhead {kv_compress_metrics.overhead_num} {kv_compress_metrics.overhead_ms:.2f}ms")
+        print(f"  K {kv_compress_metrics.key_kbs:.1f} -> {kv_compress_metrics.key_compress_kbs:.1f}: {kv_compress_metrics.get_key_compression():.2f}%")
+        print(f"  V {kv_compress_metrics.val_kbs:.1f} -> {kv_compress_metrics.val_compress_kbs:.1f}: {kv_compress_metrics.get_val_compression():.2f}%")
+        print(f"  max workers {kv_compress_metrics.max_workers}")
+
         return output
 
 

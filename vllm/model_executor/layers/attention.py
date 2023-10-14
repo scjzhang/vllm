@@ -4,9 +4,12 @@ from typing import Any, Dict, List, Optional
 import torch
 import time
 import bz2
+import zfpy
+from threading import Thread
 import os
 import numpy as np
 import torch.nn as nn
+from datetime import datetime
 from xformers import ops as xops
 from xformers.ops.fmha.attn_bias import (BlockDiagonalCausalMask,
                                          LowerTriangularMaskWithTensorBias)
@@ -19,6 +22,180 @@ from vllm.model_executor.layers.rotary_embedding import (
     RotaryEmbedding)
 
 _SUPPORTED_HEAD_SIZES = [64, 80, 96, 112, 128, 256]
+
+
+def get_elapsed_ms(t0, t1=None):
+    if t1 is None:
+        return (datetime.now() - t0).total_seconds() * 1000.0
+    return (t1 - t0).total_seconds() * 1000.0
+
+
+global compress_workers
+compress_workers = []
+
+class KVCompressMetrics():
+    compress_num = 0
+    compress_ms = 0.0
+    overhead_num = 0
+    overhead_ms = 0.0
+    max_workers = 0
+    key_kbs = 0.0
+    val_kbs = 0.0
+    key_compress_kbs = 0.0
+    val_compress_kbs = 0.0
+
+    def get_key_compression(self):
+        if self.key_kbs == 0:
+            return 100.0
+        return 100.0 * self.key_compress_kbs / self.key_kbs
+
+    def get_val_compression(self):
+        if self.val_kbs == 0:
+            return 100.0
+        return 100.0 * self.val_compress_kbs / self.val_kbs
+
+
+global kv_compress_metrics
+kv_compress_metrics = KVCompressMetrics()
+
+
+def wait_for_worker(workers, cur_layer, config):
+    if len(workers) == 0:
+        return False
+    if cur_layer == len(workers) - 1:
+        return True
+    if len(workers) >= KVCompressThread.MAX_THREADS:
+        return True
+    if not workers[0].is_alive():
+        return True
+    return False
+
+
+class KVCompressThread(Thread):
+    MAX_THREADS = 96
+
+    def __init__(self, config, gpu_index, cur_layer, key_tensors, val_tensors):
+        Thread.__init__(self)
+        self.config = config
+        self.gpu_index = gpu_index
+        self.cur_layer = cur_layer
+        self.key_tensors = key_tensors
+        self.val_tensors = val_tensors
+
+    def run(self):
+        t0 = datetime.now()
+
+        key_shape = self.key_tensors.shape
+        val_shape = self.val_tensors.shape
+
+        if self.config.compress_delta > 0: # bzip2
+            file_extension = 'bz2'
+            knob_name = 'delta'
+            knob_value = self.config.compress_delta
+        else: # zfpy
+            file_extension = 'zfp'
+            knob_name = 'tolerance'
+            knob_value = -0.1*self.config.compress_delta
+
+        key_filename = f'./kv_cache/key_{self.gpu_index}_{self.cur_layer:03d}.pt.{file_extension}'
+        val_filename = f'./kv_cache/val_{self.gpu_index}_{self.cur_layer:03d}.pt.{file_extension}'
+
+        # KV compress
+        try:
+            if self.config.compress_delta > 0: # bzip2
+                self.output_compressed_tensors_bz2(self.key_tensors, key_filename, compress_delta=knob_value)
+                self.output_compressed_tensors_bz2(self.val_tensors, val_filename, compress_delta=knob_value)
+            else: # zfpy
+                self.output_compressed_tensors_zfpy(self.key_tensors, key_filename, tolerance=knob_value)
+                self.output_compressed_tensors_zfpy(self.val_tensors, val_filename, tolerance=knob_value)
+        except Exception as ex:
+            print("Compressing/decompressing KV cache", ex)
+
+        t1 = datetime.now()
+
+        global kv_compress_metrics
+        kv_compress_metrics.compress_num += 1
+        kv_compress_metrics.compress_ms += get_elapsed_ms(t0, t1)
+
+        # Some logging
+        key_kbs = 2*len(self.key_tensors.flatten()) / 1024.0
+        val_kbs = 2*len(self.val_tensors.flatten()) / 1024.0
+        key_compress_kbs = os.path.getsize(key_filename) / 1024.0
+        val_compress_kbs = os.path.getsize(val_filename) / 1024.0
+        kv_compress_metrics.key_kbs += key_kbs
+        kv_compress_metrics.val_kbs += val_kbs
+        kv_compress_metrics.key_compress_kbs += key_compress_kbs
+        kv_compress_metrics.val_compress_kbs += val_compress_kbs
+
+        if False and self.gpu_index == 0:
+            print(f"[{datetime.now()}] K {key_filename} {key_kbs:5.1f}KB->{key_compress_kbs:6.1f}KB[{100.0*key_compress_kbs/key_kbs:4.1f}%] {self.key_tensors.shape}")
+            print(f"[{datetime.now()}] V {val_filename} {val_kbs:5.1f}KB->{val_compress_kbs:6.1f}KB[{100.0*val_compress_kbs/val_kbs:4.1f}%] {self.val_tensors.shape}")
+            print(f"[{datetime.now()}] {file_extension} {knob_name}={knob_value} {get_elapsed_ms(t0):.2f}ms")
+
+    def output_compressed_tensors_bz2(self, tensors, filename, compress_delta=0):
+        tensors_output = tensors.numpy()
+        tensors_output = tensors_output.flatten()
+        tensors_output = tensors_output + compress_delta
+        tensors_output = tensors_output.astype(np.float16)
+        with bz2.open(filename, 'wb') as output_file:
+            np.save(output_file, tensors_output)
+
+    def input_compressed_tensors_bz2(self, filename, tensor_shape, compress_delta=32):
+        with bz2.open(filename, "rb") as input_file:
+            tensors_input = np.load(input_file)
+            tensors_input = tensors_input - compress_delta
+            tensors_input = tensors_input.astype(np.float16)
+            tensors_input = torch.from_numpy(tensors_input)
+            tensors_input = torch.reshape(tensors_input, tensor_shape)
+        return tensors_input
+
+    def output_compressed_tensors_zfpy(self, tensors, filename, tolerance=1.0):
+        tensors_output = tensors.numpy().astype(np.float32)
+        compressed_data = zfpy.compress_numpy(tensors_output, tolerance=tolerance)
+        with open(filename, 'wb') as output_file:
+            output_file.write(compressed_data)
+
+    def input_compressed_tensors_zfpy(self, filename):
+        with open(filename, "rb") as input_file:
+            tensors_input = zfpy.decompress_numpy(input_file.read()).astype(np.float16)
+            tensors_input = torch.from_numpy(tensors_input)
+        return tensors_input
+
+    def output_compressed_tensors(self, tensors, filename, delta=0, tolerance=0):
+        """
+        Output compressed tensors into a file.
+        """
+        return self.output_compressed_tensors_zfpy(tensors, filename)
+
+    def input_compressed_tensors(self, filename, tensor_shape, delta=0, tolerance=0):
+        """
+        Input compressed tensors.
+        """
+        return self.input_compressed_tensors_zfpy(filename)
+
+    def decompress(self):
+        # TODO
+        key_tensors_input = self.input_compressed_tensors_bz2(key_filename, key_shape, compress_delta=knob_value)
+        val_tensors_input = self.input_compressed_tensors_bz2(val_filename, val_shape, compress_delta=config.compress_delta)
+
+        key_tensors_input = self.input_compressed_tensors_zfpy(key_filename)
+        val_tensors_input = self.input_compressed_tensors_zfpy(val_filename)
+
+        # Send KV cache to the GPU
+        device = torch.device(f"cuda:{str(gpu_index)}")
+        key_to_cache = key_tensors_input.to(device)
+        torch.cuda.synchronize()
+        value_to_cache = val_tensors_input.to(device)
+        torch.cuda.synchronize()
+
+        assert key_tensors.shape == key_tensors_input.shape
+        assert val_tensors.shape == val_tensors_input.shape
+
+        key_mae = np.average(np.abs(key_tensors - key_tensors_input))
+        val_mae = np.average(np.abs(val_tensors - val_tensors_input))
+
+        print(f"[{datetime.now()}] K {key_filename} {key_kbs:5.1f}KB->{key_compress_kbs:6.1f}KB[{100.0*key_compress_kbs/key_kbs:4.1f}%] {key_tensors.shape} {get_elapsed_ms(t1, t2):.2f}+{get_elapsed_ms(t2, t3):.2f}ms MAE:{key_mae:.3f}")
+        print(f"[{datetime.now()}] V {val_filename} {val_kbs:5.1f}KB->{val_compress_kbs:6.1f}KB[{100.0*val_compress_kbs/val_kbs:4.1f}%] {val_tensors.shape} {get_elapsed_ms(t3, t4):.2f}+{get_elapsed_ms(t4, t5):.2f}ms MAE:{val_mae:.3f}")
 
 
 class PagedAttention(nn.Module):
@@ -176,6 +353,7 @@ class PagedAttention(nn.Module):
         value_cache: Optional[torch.Tensor],
         input_metadata: InputMetadata,
         cache_event: Optional[torch.cuda.Event],
+        config = None,
         layer_idx: Optional[int] = None,
     ) -> torch.Tensor:
         """PagedAttention forward pass.
@@ -205,14 +383,14 @@ class PagedAttention(nn.Module):
 
         # Pre-allocate the output tensor.
         output = torch.empty_like(query)
+
         # Compute the attention op for prompts.
         num_prompt_tokens = input_metadata.num_prompt_tokens
-        # print("checking generation tokens", input_metadata.num_prompt_tokens, input_metadata.num_generation_tokens)
         if num_prompt_tokens > 0:
             # Prompt run.
             # if int(torch.cuda.current_device()) == 0:
             #     print("layers prompt run: ", self.layers, num_prompt_tokens)
-            assert input_metadata.num_generation_tokens == 0
+            #ESHA assert input_metadata.num_generation_tokens == 0
             self.set_attn_bias(input_metadata, dtype=query.dtype)
             self.multi_query_kv_attention(
                 output[:num_prompt_tokens],
@@ -221,84 +399,53 @@ class PagedAttention(nn.Module):
                 value[:num_prompt_tokens],
                 input_metadata,
             )
+
         # Wait until the cache op is done.
         if cache_event is not None:
             cache_event.wait()
+
+        # print("checking generation tokens", input_metadata.num_prompt_tokens, input_metadata.num_generation_tokens)
+        # print("Input metadata:", input_metadata.prompt_lens)
+        # print("Checking valid tokens", input_metadata.num_valid_tokens)
+
         # Reshape the keys and values and store them in the cache.
         # When key_cache and value_cache are not provided, the new key
         # and value vectors will not be cached.
         num_valid_tokens = input_metadata.num_valid_tokens
-        # print("checking valid tokens", input_metadata.num_valid_tokens)
         if (num_valid_tokens > 0 and key_cache is not None
                 and value_cache is not None):
             # The stride is 3 because the key and value are sliced from qkv.
-            # if int(torch.cuda.current_device()) == 0:
-            #     print("current layers: ", layer_idx, num_valid_tokens, num_prompt_tokens)
-
-            tensors_on_cpu = {}
-            value_on_cpu = {}
             key_to_cache = key[:num_valid_tokens]
             value_to_cache = value[:num_valid_tokens]
             slot_mapping = input_metadata.slot_mapping
-            key_shape = key_to_cache.shape
-            value_shape = value_to_cache.shape
-            gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
 
-            # deltas = np.float16(8192)
-            # tensors_output = key_to_cache.cpu().numpy().astype(np.float16).flatten()
-            # tensors_output += deltas
-            # if layer_idx is None:
-            #     print("layer idx is not configured")
-            # cur_layer = layer_idx if layer_idx else 0
-            # filename = f'./compressed_key_cache/gpu_{gpu_index}_compressed-{cur_layer}'
-            # with bz2.open(filename, 'wb') as outfile:
-            #     np.save(outfile, tensors_output)
+            # Handle KV cache compression
+            if config is not None and hasattr(config, "compress_delta") and config.compress_delta != 0:
+                gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
+                cur_layer = layer_idx if layer_idx else 0
 
-            # with bz2.open(filename, "rb") as infile:
-            #     tensors_input = np.load(infile)
-            #     tensors_input -= deltas
-            #     tensors_input = tensors_input.astype(np.float16)
-            #     tensors_input = torch.from_numpy(tensors_input)
-            #     tensors_input = torch.reshape(tensors_input, key_shape)
+                global compress_workers
+                global kv_compress_metrics
 
-            # device = torch.device(f"cuda:{str(gpu_index)}")
-            # key_to_cache = tensors_input.to(device)
-            # torch.cuda.synchronize()
+                t0 = datetime.now()
 
-            # value_output = value_to_cache.cpu().numpy()
-            # if gpu_index == 0:
-            #     print(value_output.shape)
-            # value_output = value_output.astype(np.float16).flatten()
-            # value_output += deltas
-            # filename = f'./compressed_value_cache/gpu_{gpu_index}_compressed-{cur_layer}'
-            # with bz2.open(filename, 'wb') as outfile:
-            #     np.save(outfile, value_output)
+                compress_worker = KVCompressThread(
+                    config,
+                    gpu_index,
+                    cur_layer,
+                    key_to_cache.cpu(),
+                    value_to_cache.cpu(),
+                )
+                compress_worker.start()
+                compress_workers.append(compress_worker)
 
-            # with bz2.open(filename, "rb") as infile:
-            #     value_input = np.load(infile)
-            #     value_input -= deltas
-            #     value_input = value_input.astype(np.float16)
-            #     value_input = torch.from_numpy(value_input)
-            #     value_input = torch.reshape(value_input, value_shape)
+                if len(compress_workers) > kv_compress_metrics.max_workers:
+                    kv_compress_metrics.max_workers = len(compress_workers)
+                while wait_for_worker(compress_workers, cur_layer, config):
+                   compress_workers.pop(0).join()
 
-            # value_to_cache = value_input.to(device)
-            # torch.cuda.synchronize()
-
-            # to_cpu_start = time.perf_counter()
-            # gpu_index = int(str(key[:num_valid_tokens].device).strip("cuda:"))
-            # tensors_on_cpu[gpu_index] = key[:num_valid_tokens].to('cpu')
-            # value_on_cpu[gpu_index] = value[:num_valid_tokens].to('cpu')
-
-            # torch.cuda.synchronize()
-            # if int(torch.cuda.current_device()) == 0:
-            #     print("Copy to CPU: ", time.perf_counter() - to_cpu_start)
-            # if layer_idx is None:
-            #     print("layer idx is not configured")
-            # cur_layer = layer_idx if layer_idx else 0
-            # pt_file_path = f'gpu_{gpu_index}_tensor-{cur_layer}.pt'
-
-            # torch.save(tensors_on_cpu[gpu_index], './key_cache/' + pt_file_path)
-            # torch.save(value_on_cpu[gpu_index], './value_cache/' + pt_file_path)
+                kv_compress_metrics.overhead_num += 1
+                kv_compress_metrics.overhead_ms += get_elapsed_ms(t0)
 
             if input_metadata.to_cache is not None:
                 key_to_cache = key_to_cache[input_metadata.to_cache]
@@ -313,22 +460,9 @@ class PagedAttention(nn.Module):
                 slot_mapping,
             )
 
-
-            # txt_file_path = f'gpu_{gpu_index}_tensor.txt'
-            # torch.set_printoptions(profile="full")
-            # for idx, key_tensor in tensors_on_cpu.items():
-
-                #with open('./key_cache/' + txt_file_path, 'w') as txt_file:
-                #    txt_file.write(str(key_tensor))
-                #torch.save(key_tensor, './key_cache/' + pt_file_path)
-            #for idx, value_tensor in value_on_cpu.items():
-                #with open('./value_cache/' + txt_file_path, 'w') as txt_file:
-                #    txt_file.write(str(value_tensor))
-                #torch.save(value_tensor, './value_cache/' + pt_file_path)
-        # print("checking generation tokens again", input_metadata.num_prompt_tokens, input_metadata.num_generation_tokens)
         if input_metadata.num_generation_tokens > 0:
             # Decoding run.
-            assert input_metadata.num_prompt_tokens == 0
+            # ESHA assert input_metadata.num_prompt_tokens == 0
             assert key_cache is not None and value_cache is not None, (
                 "key_cache and value_cache must be provided when "
                 "generating tokens.")
@@ -392,6 +526,8 @@ class PagedAttentionWithRoPE(PagedAttention):
         value_cache: torch.Tensor,
         input_metadata: InputMetadata,
         cache_event: Optional[torch.cuda.Event],
+        config = None,
+        layer_idx: Optional[int] = None,
     ) -> torch.Tensor:
         """ PagedAttention forward pass with rotary embedding.
 
@@ -422,6 +558,8 @@ class PagedAttentionWithRoPE(PagedAttention):
             value_cache,
             input_metadata,
             cache_event,
+            config,
+            layer_idx,
         )
 
 
