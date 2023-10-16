@@ -561,6 +561,7 @@ class LLMEngine:
             blocks_to_swap_in=scheduler_outputs.blocks_to_swap_in,
             blocks_to_swap_out=scheduler_outputs.blocks_to_swap_out,
             blocks_to_copy=scheduler_outputs.blocks_to_copy,
+            blocks_to_nw=scheduler_outputs.blocks_to_nw,
         )
 
         return self._process_model_outputs(output, scheduler_outputs) + ignored
@@ -704,6 +705,15 @@ class LLMEngine:
 
         # Make sure all workers have the same results.
         output = all_outputs[0]
-        for other_output in all_outputs[1:]:
-            assert output == other_output
+        if self.parallel_config.sep_prompt_token:
+            num_prompt_gpus = 8
+            for other_output in all_outputs[1:num_prompt_gpus]:
+                assert output == other_output
+            output = all_outputs[num_prompt_gpus]
+            for other_output in all_outputs[num_prompt_gpus+1:]:
+                assert output == other_output
+            print(output, all_outputs[0])
+        else:
+            for other_output in all_outputs[1:]:
+                assert output == other_output
         return output
