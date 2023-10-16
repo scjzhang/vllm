@@ -242,12 +242,18 @@ class ParallelConfig:
         pipeline_parallel_size: int,
         tensor_parallel_size: int,
         worker_use_ray: bool,
+        sep_prompt_token: bool,
+        num_prompt_workers: int = 1,
+        num_token_workers: int = 1,
     ) -> None:
         self.pipeline_parallel_size = pipeline_parallel_size
         self.tensor_parallel_size = tensor_parallel_size
         self.worker_use_ray = worker_use_ray
+        self.sep_prompt_token = sep_prompt_token
 
         self.world_size = pipeline_parallel_size * tensor_parallel_size
+        if sep_prompt_token:
+            self.world_size = self.world_size * (num_prompt_workers + num_token_workers)
         if self.world_size > 1:
             self.worker_use_ray = True
         self._verify_args()
