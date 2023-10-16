@@ -242,6 +242,15 @@ class BlockSpaceManager:
         }
         return block_number_mapping
 
+    def get_block_ids(self, seq_id: int) -> List[int]:
+        block_table = self.block_tables[seq_id]
+        block_ids = []
+
+        for gpu_block in block_table:
+            block_ids.append(gpu_block.block_number)
+
+        return block_ids
+
     def _free_block_table(self, block_table: BlockTable) -> None:
         for block in set(block_table):
             if block.device == Device.GPU:
