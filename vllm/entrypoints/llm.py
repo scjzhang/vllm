@@ -72,6 +72,7 @@ class LLM:
         tokenizer_revision: Optional[str] = None,
         seed: int = 0,
         gpu_memory_utilization: float = 0.9,
+        sep_prompt_token: bool = False,
         swap_space: int = 4,
         **kwargs,
     ) -> None:
@@ -84,6 +85,7 @@ class LLM:
             tokenizer_mode=tokenizer_mode,
             trust_remote_code=trust_remote_code,
             tensor_parallel_size=tensor_parallel_size,
+            sep_prompt_token=sep_prompt_token,
             dtype=dtype,
             quantization=quantization,
             revision=revision,
