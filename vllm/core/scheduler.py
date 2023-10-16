@@ -35,6 +35,7 @@ class SchedulerOutputs:
         blocks_to_swap_in: Dict[int, int],
         blocks_to_swap_out: Dict[int, int],
         blocks_to_copy: Dict[int, List[int]],
+        blocks_to_nw: List[int],
         ignored_seq_groups: List[SequenceGroup],
     ) -> None:
         self.scheduled_seq_groups = scheduled_seq_groups
@@ -43,6 +44,7 @@ class SchedulerOutputs:
         self.blocks_to_swap_in = blocks_to_swap_in
         self.blocks_to_swap_out = blocks_to_swap_out
         self.blocks_to_copy = blocks_to_copy
+        self.blocks_to_nw = blocks_to_nw
         # Swap in and swap out should never happen at the same time.
         assert not (blocks_to_swap_in and blocks_to_swap_out)
         self.ignored_seq_groups = ignored_seq_groups
@@ -50,7 +52,8 @@ class SchedulerOutputs:
     def is_empty(self) -> bool:
         # NOTE: We do not consider the ignored sequence groups.
         return (not self.scheduled_seq_groups and not self.blocks_to_swap_in
-                and not self.blocks_to_swap_out and not self.blocks_to_copy)
+                and not self.blocks_to_swap_out and not self.blocks_to_copy
+                and not self.blocks_to_nw)
 
 
 class Scheduler:
@@ -119,6 +122,7 @@ class Scheduler:
         blocks_to_swap_in: Dict[int, int] = {}
         blocks_to_swap_out: Dict[int, int] = {}
         blocks_to_copy: Dict[int, List[int]] = {}
+        blocks_to_nw: List[int] = []
 
         # Fix the current time.
         now = time.monotonic()
@@ -174,6 +178,10 @@ class Scheduler:
                 num_batched_tokens += num_prompt_tokens
                 num_curr_seqs += num_new_seqs
                 scheduled.append(seq_group)
+                for seq_id in seq_group.seqs_dict:
+                    if not seq_group.seqs_dict[seq_id].get_output_len():
+                        block_ids = self.block_manager.get_block_ids(seq_id)
+                        blocks_to_nw.extend(block_ids)
 
             if scheduled or ignored_seq_groups:
                 scheduler_outputs = SchedulerOutputs(
@@ -183,6 +191,7 @@ class Scheduler:
                     blocks_to_swap_in=blocks_to_swap_in,
                     blocks_to_swap_out=blocks_to_swap_out,
                     blocks_to_copy=blocks_to_copy,
+                    blocks_to_nw=blocks_to_nw,
                     ignored_seq_groups=ignored_seq_groups,
                 )
                 return scheduler_outputs
@@ -248,6 +257,12 @@ class Scheduler:
             seq_group.num_seqs(status=SequenceStatus.RUNNING)
             for seq_group in self.running)
 
+        for seq_group in self.running:
+            for seq in seq_group.get_seqs(status=SequenceStatus.RUNNING):
+                if not seq.get_output_len():
+                    block_ids = self.block_manager.get_block_ids(seq.seq_id)
+                    blocks_to_nw.extend(block_ids)
+
         scheduler_outputs = SchedulerOutputs(
             scheduled_seq_groups=self.running,
             prompt_run=False,
@@ -255,6 +270,7 @@ class Scheduler:
             blocks_to_swap_in=blocks_to_swap_in,
             blocks_to_swap_out=blocks_to_swap_out,
             blocks_to_copy=blocks_to_copy,
+            blocks_to_nw=blocks_to_nw,
             ignored_seq_groups=[],
         )
         return scheduler_outputs
