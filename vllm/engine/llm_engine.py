@@ -218,6 +218,7 @@ class LLMEngine:
 
         # Initialize the cache.
         self._run_workers("init_cache_engine", cache_config=self.cache_config)
+
     def _init_msccl_comm(self) -> None:
         """Initializes the MSCCL communicator."""
         self._run_workers("init_msccl_comm", get_all_outputs=True)
