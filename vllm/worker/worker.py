@@ -55,14 +55,13 @@ class Worker:
         self.worker_type = worker_type
 
     def is_token_worker(self):
-        if self.worker_type == WorkerType.TOKEN:
-            return True
-        return False
+        return self.worker_type == WorkerType.TOKEN
     
     def is_prompt_worker(self):
-        if self.worker_type == WorkerType.PROMPT:
-            return True
-        return False
+        return self.worker_type == WorkerType.PROMPT
+    
+    def is_both_worker(self):
+        return self.worker_type == WorkerType.BOTH
 
     def init_model(self):
         # This env var set by Ray causes exceptions with graph building.
@@ -108,6 +107,65 @@ class Worker:
         # Initialize the model.
         set_random_seed(self.model_config.seed)
         self.model = get_model(self.model_config)
+
+    # call after init_cache in order to have the correct block_size
+    def init_msccl_comm(self):
+        if not self.parallel_config.sep_prompt_token:
+            return
+
+        if self.rank < (self.parallel_config.world_size / 2):
+            self.worker_type = WorkerType.PROMPT
+        else:
+            self.worker_type = WorkerType.TOKEN
+
+        # os.environ['MSCCLPP_DEBUG'] = 'INFO'
+        # os.environ['MSCCLPP_DEBUG_SUBSYS'] = 'ALL'
+        os.environ['MSCCLPP_HCA_DEVICES'] = 'mlx5_0,mlx5_1,mlx5_2,mlx5_4,mlx5_5,mlx5_6,mlx5_7,mlx5_8'
+        self.msccl_group = MscclppGroup(
+            self.rank,
+            self.parallel_config.world_size,
+            "eth0:10.0.0.5:51000"
+        )
+        corr_worker_rank = (self.msccl_group.my_rank + 8) % self.msccl_group.nranks
+        self.connections = self.msccl_group.make_connection(
+            [corr_worker_rank],
+            self.msccl_group.my_ib_device(self.msccl_group.my_rank % 8)
+        )
+
+        self.semaphores = {}
+        for rank in self.connections:
+            self.semaphores[rank] = Host2HostSemaphore(self.msccl_group.communicator, self.connections[rank])
+
+        # register all memory
+        self.my_reg_memory = []
+        num_layers = self.model_config.get_num_layers(self.parallel_config)
+        mem_size = self.gpu_cache[0][0].numel() * self.gpu_cache[0][0].element_size()
+        for i in range(num_layers):
+            k_reg_mem = self.msccl_group.communicator.register_memory(
+                        self.gpu_cache[i][0].data_ptr(),
+                        mem_size,
+                        self.msccl_group.my_ib_device(self.msccl_group.my_rank % 8)
+                    )
+            v_reg_mem = self.msccl_group.communicator.register_memory(
+                        self.gpu_cache[i][1].data_ptr(),
+                        mem_size,
+                        self.msccl_group.my_ib_device(self.msccl_group.my_rank % 8)
+                    )
+            self.my_reg_memory.append((k_reg_mem, v_reg_mem))
+
+        self.token_worker_memory = [[None, None] for i in range(num_layers)]
+        for i in range(num_layers):
+            for k_or_v in [0, 1]:
+                tag = i*2 + k_or_v
+                if self.is_prompt_worker():
+                    self.token_worker_memory[i][k_or_v] = self.msccl_group.communicator.recv_memory_on_setup(
+                        corr_worker_rank, tag)
+                    # self.token_worker_memory[i][k_or_v].get()
+                else:
+                    self.msccl_group.communicator.send_memory_on_setup(
+                        self.my_reg_memory[i][k_or_v], corr_worker_rank, tag)
+
+        self.msccl_group.communicator.setup()
 
     @torch.inference_mode()
     def profile_num_available_blocks(
@@ -359,93 +417,90 @@ class Worker:
 
 
         output = {}
-        if (prompt_run and self.is_prompt_worker()) or (not prompt_run and self.is_token_worker()):
-                # Prepare input tensors.
-                input_tokens, input_positions, input_metadata = self._prepare_inputs(
-                    seq_group_metadata_list)
+        if (prompt_run and self.is_prompt_worker()) or (not prompt_run and self.is_token_worker()) or self.is_both_worker():
+            # Prepare input tensors.
+            input_tokens, input_positions, input_metadata = self._prepare_inputs(
+                seq_group_metadata_list)
 
-                # Execute the model.
-                output = self.model(
-                    input_ids=input_tokens,
-                    positions=input_positions,
-                    kv_caches=self.gpu_cache,
-                    input_metadata=input_metadata,
-                    cache_events=cache_events,
-                )
+            if self.is_prompt_worker():
+                prompt_start = time.time()
+
+            # Execute the model.
+            output = self.model(
+                input_ids=input_tokens,
+                positions=input_positions,
+                kv_caches=self.gpu_cache,
+                input_metadata=input_metadata,
+                cache_events=cache_events,
+            )
+
+            if self.is_prompt_worker():
+                prompt_end = time.time()
+                print(f"prompt_time: {prompt_end-prompt_start}", flush=True)
             
         if prompt_run and len(blocks_to_nw):
-                self.nw_both(blocks_to_nw)
+            self.nw_both(blocks_to_nw, pass_through)
         
         return output
 
-    def nw_both(self, blocks_to_nw: List[int]):
-        # print("blocks_to_nw:", blocks_to_nw, flush=True)
-        if len(blocks_to_nw):
-            num_layers = self.model_config.get_num_layers(self.parallel_config)
-            for rank in self.connections:
-                corr_worker_rank = rank
-                # print("corr_worker_rank:", corr_worker_rank, "my_rank:", self.rank, flush=True)
+    def nw_both(
+        self,
+        blocks_to_nw: List[int],
+        pass_through: bool,
+    ) -> None:
+        if pass_through or len(blocks_to_nw) == 0:
+            return
 
-            for i in range(num_layers):
-                # iterate over contiguous kv-blocks
-                for block_id in blocks_to_nw:
-                    # register memory
-                    for k_or_v in [0,1]:
-                        mem_size = self.gpu_cache[i][k_or_v][block_id, :].numel() * self.gpu_cache[i][k_or_v][block_id, :].element_size()
-                        # print("0A", flush=True)
-                        my_reg_memory = self.msccl_group.communicator.register_memory(
-                            self.gpu_cache[i][k_or_v][block_id, :].data_ptr(),
-                            mem_size,
-                            self.msccl_group.my_ib_device(self.msccl_group.my_rank % 8)
-                        )
+        WAIT_TIMEOUT = 10000000000
+        COUNT_FLUSH = 1000
 
-                        token_worker_memory = None
-                        if self.worker_type == WorkerType.PROMPT:
-                            # print("prompt-1A", flush=True)
-                            token_worker_memory = self.msccl_group.communicator.recv_memory_on_setup(
-                                corr_worker_rank, 0)
-                            # print("prompt-1A done", flush=True)
-                        else:
-                            # print("token-1A", flush=True)
-                            self.msccl_group.communicator.send_memory_on_setup(
-                            my_reg_memory, corr_worker_rank, 0)
-                            # print("token-1A done", flush=True)
+        key_block_shape = self.cache_engine.get_key_block_shape()
+        num_layers = self.model_config.get_num_layers(self.parallel_config)
+        block_num = self.gpu_cache[0][0][0, :].numel()
+        block_size = self.gpu_cache[0][0][0, :].element_size()
+        mem_size = block_num * block_size
+        
+        start = time.time()
+        count = 0
 
-                        self.msccl_group.communicator.setup()
+        # TODO Isn't this just? corr_worker_rank = self.connections.keys[-1]
+        for rank in self.connections:
+            corr_worker_rank = rank
 
-                        if self.worker_type == WorkerType.PROMPT:
-                            # print("prompt-2A", flush=True)
-                            token_worker_memory.get()
-                            # print("prompt-2A done", flush=True)
-
-                        if self.worker_type == WorkerType.PROMPT:
-                            # write
-                            for rank in self.connections:
-                                # print(f"prompt-5A do write {rank}", flush=True)
-                                self.connections[rank].write(
-                                    token_worker_memory.get(),
-                                    0,
-                                    my_reg_memory,
-                                    0,
-                                    mem_size
-                                )
-                                # print(f"prompt-5A {rank} done", flush=True)
-
-                        for rank in self.connections:
-                            self.connections[rank].flush()
+        for layer_id in range(num_layers):
+            # iterate over contiguous kv-blocks
+            for block_id in blocks_to_nw:
+                # register memory
+                for k_or_v in [0, 1]:
+                    if self.is_prompt_worker():
+                        # write
+                        for connection in self.connections.values():
+                            connection.write(
+                                self.token_worker_memory[layer_id][k_or_v].get(),
+                                block_id * mem_size,
+                                self.my_reg_memory[layer_id][k_or_v],
+                                block_id * mem_size,
+                                mem_size
+                            )
 
                         # signal that all writes of this layer are done
-                        # print("6A", flush=True)
-                        if self.worker_type == WorkerType.PROMPT:
-                            for rank in self.semaphores:
-                                print(f"prompt_worker-6A [{self.rank}] signalled for rank: {rank} {k_or_v} {block_id} {i}", flush=True)
-                                self.semaphores[rank].signal()
-                                print(f"prompt_worker-6A [{self.rank}] done signalling for rank: {rank} {k_or_v} {block_id} {i}", flush=True)
-                        else:
-                            for rank in self.connections:
-                                print(f"token_worker-6A [{self.rank}] waiting for rank: {rank} {k_or_v} {block_id} {i}", flush=True)
-                                self.semaphores[rank].wait(10000000000)
-                                print(f"token_worker-6A [{self.rank}] finished waiting for rank: {rank} {k_or_v} {block_id} {i}", flush=True)
+                        # TODO would it make sense to signal right after each write?
+                        for semaphore in self.semaphores.values():
+                            semaphore.signal()
+                    else:
+                        for sempahore in self.semaphores.values():
+                            sempahore.wait(WAIT_TIMEOUT)
+
+                    if count % COUNT_FLUSH == 0:
+                        count = 0
+                        for connection in self.connections.values():
+                            connection.flush()
+
+        for connection in self.connections.values():
+            connection.flush()
+
+        end = time.time()
+        print(f"time: {end-start}, layers: {num_layers}, k/v: 2, blocks: {len(blocks_to_nw)}, block_size: {key_block_shape}, element_size: {self.gpu_cache[0][0][0, :].element_size()}, blocks: {blocks_to_nw}", flush=True)
 
 
 def _init_distributed_environment(
