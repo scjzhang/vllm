@@ -93,18 +93,24 @@ class Worker:
         else:
             self.worker_type = WorkerType.TOKEN
 
+        NUM_GPUS = 8
+      
         # os.environ['MSCCLPP_DEBUG'] = 'INFO'
         # os.environ['MSCCLPP_DEBUG_SUBSYS'] = 'ALL'
+        devices = []
+        for gpu_id in range(NUM_GPUS):
+            devices.append(f"mlx5_{i}")
+        os.environ['MSCCLPP_HCA_DEVICES'] = ','.join(devices)
         os.environ['MSCCLPP_HCA_DEVICES'] = 'mlx5_0,mlx5_1,mlx5_2,mlx5_4,mlx5_5,mlx5_6,mlx5_7,mlx5_8'
         self.msccl_group = MscclppGroup(
             self.rank,
             self.parallel_config.world_size,
             "eth0:10.0.0.5:51000"
         )
-        corr_worker_rank = (self.msccl_group.my_rank + 8) % self.msccl_group.nranks
+        corr_worker_rank = (self.msccl_group.my_rank + NUM_GPUS) % self.msccl_group.nranks
         self.connections = self.msccl_group.make_connection(
             [corr_worker_rank],
-            self.msccl_group.my_ib_device(self.msccl_group.my_rank % 8)
+            self.msccl_group.my_ib_device(self.msccl_group.my_rank % NUM_GPUS)
         )
 
         self.semaphores = {}
@@ -115,30 +121,26 @@ class Worker:
         self.my_reg_memory = []
         num_layers = self.model_config.get_num_layers(self.parallel_config)
         mem_size = self.gpu_cache[0][0].numel() * self.gpu_cache[0][0].element_size()
-        for i in range(num_layers):
-            k_reg_mem = self.msccl_group.communicator.register_memory(
-                        self.gpu_cache[i][0].data_ptr(),
-                        mem_size,
-                        self.msccl_group.my_ib_device(self.msccl_group.my_rank % 8)
-                    )
-            v_reg_mem = self.msccl_group.communicator.register_memory(
-                        self.gpu_cache[i][1].data_ptr(),
-                        mem_size,
-                        self.msccl_group.my_ib_device(self.msccl_group.my_rank % 8)
-                    )
-            self.my_reg_memory.append((k_reg_mem, v_reg_mem))
+        for layer_id in range(num_layers):
+            self.my_reg_memory.append([])
+            for k_or_v in [0, 1]:
+                reg_mem = self.msccl_group.communicator.register_memory(
+                    self.gpu_cache[layer_id][k_or_v].data_ptr(),
+                    mem_size,
+                    self.msccl_group.my_ib_device(self.msccl_group.my_rank % NUM_GPUS)
+                )
+                self.my_reg_memory[-1].append(reg_mem)
 
         self.token_worker_memory = [[None, None] for i in range(num_layers)]
-        for i in range(num_layers):
+        for layer_id in range(num_layers):
             for k_or_v in [0, 1]:
-                tag = i*2 + k_or_v
+                tag = layer_id * 2 + k_or_v
                 if self.is_prompt_worker():
-                    self.token_worker_memory[i][k_or_v] = self.msccl_group.communicator.recv_memory_on_setup(
+                    self.token_worker_memory[layer_id][k_or_v] = self.msccl_group.communicator.recv_memory_on_setup(
                         corr_worker_rank, tag)
-                    # self.token_worker_memory[i][k_or_v].get()
                 else:
                     self.msccl_group.communicator.send_memory_on_setup(
-                        self.my_reg_memory[i][k_or_v], corr_worker_rank, tag)
+                        self.my_reg_memory[layer_id][k_or_v], corr_worker_rank, tag)
 
         self.msccl_group.communicator.setup()
 
