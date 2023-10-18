@@ -79,31 +79,6 @@ class Worker:
         _init_distributed_environment(self.parallel_config, self.rank,
                                       self.distributed_init_method)
 
-        # TODO(aashaka) - use num_prompt_workers and num_token_workers
-        if self.parallel_config.sep_prompt_token:
-            if self.rank < (self.parallel_config.world_size / 2):
-                self.worker_type = WorkerType.PROMPT
-            else:
-                self.worker_type = WorkerType.TOKEN
-
-        if self.parallel_config.sep_prompt_token:
-            os.environ['MSCCLPP_DEBUG'] = 'INFO'
-            os.environ['MSCCLPP_DEBUG_SUBSYS'] = 'ALL'
-            self.msccl_group = MscclppGroup(
-                self.rank,
-                self.parallel_config.world_size,
-                "eth0:10.0.0.5:50000"
-            )
-            self.connections = self.msccl_group.make_connection(
-                [(self.msccl_group.my_rank + 8) % self.msccl_group.nranks],
-                self.msccl_group.my_ib_device(self.msccl_group.my_rank % 8)
-            )
-            # self.semaphores = self.msccl_group.make_semaphore(self.connections, Host2HostSemaphore)
-
-            self.semaphores = {}
-            for rank in self.connections:
-                self.semaphores[rank] = Host2HostSemaphore(self.msccl_group.communicator, self.connections[rank])
-
         # Initialize the model.
         set_random_seed(self.model_config.seed)
         self.model = get_model(self.model_config)
