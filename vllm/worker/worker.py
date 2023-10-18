@@ -114,15 +114,17 @@ class Worker:
         )
 
         self.semaphores = {}
-        for rank in self.connections:
-            self.semaphores[rank] = Host2HostSemaphore(self.msccl_group.communicator, self.connections[rank])
+        for rank, connection in self.connections.items():
+            self.semaphores[rank] = Host2HostSemaphore(self.msccl_group.communicator, connection)
 
         # register all memory
         self.my_reg_memory = []
+        self.token_worker_memory = []
         num_layers = self.model_config.get_num_layers(self.parallel_config)
         mem_size = self.gpu_cache[0][0].numel() * self.gpu_cache[0][0].element_size()
         for layer_id in range(num_layers):
             self.my_reg_memory.append([])
+            self.token_worker_memory.append([])
             for k_or_v in [0, 1]:
                 reg_mem = self.msccl_group.communicator.register_memory(
                     self.gpu_cache[layer_id][k_or_v].data_ptr(),
@@ -131,13 +133,11 @@ class Worker:
                 )
                 self.my_reg_memory[-1].append(reg_mem)
 
-        self.token_worker_memory = [[None, None] for i in range(num_layers)]
-        for layer_id in range(num_layers):
-            for k_or_v in [0, 1]:
                 tag = layer_id * 2 + k_or_v
                 if self.is_prompt_worker():
-                    self.token_worker_memory[layer_id][k_or_v] = self.msccl_group.communicator.recv_memory_on_setup(
+                    worker_mem = self.msccl_group.communicator.recv_memory_on_setup(
                         corr_worker_rank, tag)
+                    self.token_worker_memory[layer_id][k_or_v].append(worker_mem)
                 else:
                     self.msccl_group.communicator.send_memory_on_setup(
                         self.my_reg_memory[layer_id][k_or_v], corr_worker_rank, tag)
