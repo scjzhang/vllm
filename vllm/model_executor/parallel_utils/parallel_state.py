@@ -19,6 +19,9 @@ _PIPELINE_GLOBAL_RANKS = None
 def initialize_model_parallel(
     tensor_model_parallel_size: int = 1,
     pipeline_model_parallel_size: int = 1,
+    sep_prompt_token: bool = False,
+    prompt_workers: int = 1,
+    token_workers: int = 1,
 ) -> None:
     """
     Initialize model parallel groups.
@@ -46,12 +49,17 @@ def initialize_model_parallel(
     assert torch.distributed.is_initialized()
     world_size: int = torch.distributed.get_world_size()
 
+    mult = 1
+    if sep_prompt_token:
+        mult = prompt_workers + token_workers
+
     if (world_size !=
-            tensor_model_parallel_size * pipeline_model_parallel_size):
+            tensor_model_parallel_size * pipeline_model_parallel_size * mult):
         raise RuntimeError(
             f"world_size ({world_size}) is not equal to "
             f"tensor_model_parallel_size ({tensor_model_parallel_size}) x "
-            f"pipeline_model_parallel_size ({pipeline_model_parallel_size})")
+            f"pipeline_model_parallel_size ({pipeline_model_parallel_size}) x "
+            f"mult ({mult})")
 
     num_tensor_model_parallel_groups: int = (world_size //
                                              tensor_model_parallel_size)

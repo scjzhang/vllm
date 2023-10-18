@@ -111,6 +111,7 @@ class LLMEngine:
 
         # Profile the memory usage and initialize the cache.
         self._init_cache()
+        self._init_msccl_comm()
 
         # Create the scheduler.
         self.scheduler = Scheduler(scheduler_config, cache_config)
@@ -217,6 +218,10 @@ class LLMEngine:
 
         # Initialize the cache.
         self._run_workers("init_cache_engine", cache_config=self.cache_config)
+
+    def _init_msccl_comm(self) -> None:
+        """Initializes the MSCCL communicator."""
+        self._run_workers("init_msccl_comm", get_all_outputs=True)
 
     @classmethod
     def from_engine_args(cls, engine_args: EngineArgs) -> "LLMEngine":
@@ -555,12 +560,16 @@ class LLMEngine:
             return ignored
 
         # Execute the model.
+        blocks_to_nw = []
+        if self.parallel_config.sep_prompt_token:
+            blocks_to_nw = scheduler_outputs.blocks_to_nw
         output = self._run_workers(
             "execute_model",
             seq_group_metadata_list=seq_group_metadata_list,
             blocks_to_swap_in=scheduler_outputs.blocks_to_swap_in,
             blocks_to_swap_out=scheduler_outputs.blocks_to_swap_out,
             blocks_to_copy=scheduler_outputs.blocks_to_copy,
+            blocks_to_nw=scheduler_outputs.blocks_to_nw,
         )
 
         return self._process_model_outputs(output, scheduler_outputs) + ignored
@@ -704,6 +713,15 @@ class LLMEngine:
 
         # Make sure all workers have the same results.
         output = all_outputs[0]
-        for other_output in all_outputs[1:]:
-            assert output == other_output
+        if self.parallel_config.sep_prompt_token:
+            num_prompt_gpus = 8
+            for other_output in all_outputs[1:num_prompt_gpus]:
+                assert output == other_output
+            output = all_outputs[num_prompt_gpus]
+            for other_output in all_outputs[num_prompt_gpus+1:]:
+                assert output == other_output
+            print(output, all_outputs[0])
+        else:
+            for other_output in all_outputs[1:]:
+                assert output == other_output
         return output
