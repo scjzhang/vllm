@@ -265,14 +265,19 @@ def load_padded_tensor_parallel_vocab(
     param[:loaded_weight.shape[0]].copy_(loaded_weight)
 
 
+#ESHA: this function is loading the right part of weights per devide. Need a version of this for pipeline
+# Rather, in load_weights in opt.py, should only call this function if the layer number is within the scope
+# of the pipeline rank
 def load_tensor_parallel_weights(
     param: torch.Tensor,
     loaded_weight: Any,  # `torch.Tensor` or `PySafeSlice`
     param_name: str,
     column_parallel_weight_names: List[str],
     row_parallel_weight_names: List[str],
-    tensor_model_parallel_rank: int,
+    tensor_model_parallel_rank: int
 ) -> None:
+    #print("ESHA ", param_name, flush=True)
+
     for p in column_parallel_weight_names:
         if p in param_name:
             shard_size = param.shape[0]

@@ -127,6 +127,7 @@ class ModelConfig:
 
         total_num_hidden_layers = self.hf_config.num_hidden_layers
         pipeline_parallel_size = parallel_config.pipeline_parallel_size
+        print("ESHA: Total number of attention heads ", total_num_attention_heads, " Total number of hidden layers ", total_num_hidden_layers)
         if total_num_hidden_layers % pipeline_parallel_size != 0:
             raise ValueError(
                 f"Total number of hidden layers ({total_num_hidden_layers}) "
@@ -253,9 +254,11 @@ class ParallelConfig:
         self._verify_args()
 
     def _verify_args(self) -> None:
+        #ESHA : commenting
         if self.pipeline_parallel_size > 1:
-            raise NotImplementedError(
-                "Pipeline parallelism is not supported yet.")
+            print("ESHA TESTING PP")
+#            raise NotImplementedError(
+#                "Pipeline parallelism is not supported yet.")
 
 
 class SchedulerConfig:

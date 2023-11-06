@@ -69,6 +69,7 @@ def initialize_model_parallel(
         group = torch.distributed.new_group(ranks)
         if rank in ranks:
             _TENSOR_MODEL_PARALLEL_GROUP = group
+            print("ESHA rank ", rank, " added to TP group number ", ranks)
 
     # Build the pipeline model-parallel groups.
     global _PIPELINE_MODEL_PARALLEL_GROUP
@@ -81,6 +82,7 @@ def initialize_model_parallel(
         if rank in ranks:
             _PIPELINE_MODEL_PARALLEL_GROUP = group
             _PIPELINE_GLOBAL_RANKS = ranks
+            print("ESHA rank ", rank, " added to PP group number ", ranks, " global are ", _PIPELINE_GLOBAL_RANKS)
 
 
 def model_parallel_is_initialized():
@@ -150,7 +152,7 @@ def get_pipeline_model_parallel_last_rank():
     last_rank_local = get_pipeline_model_parallel_world_size() - 1
     return _PIPELINE_GLOBAL_RANKS[last_rank_local]
 
-
+#ESHA: will use this function to pass the outputs
 def get_pipeline_model_parallel_next_rank():
     """Return the global rank that follows the caller in the pipeline"""
     assert _PIPELINE_GLOBAL_RANKS is not None, (

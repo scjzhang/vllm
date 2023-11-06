@@ -112,7 +112,7 @@ class BloomAttention(nn.Module):
         kv_cache: KVCache,
         input_metadata: InputMetadata,
         cache_event: Optional[torch.cuda.Event],
-        layer_idx: Optional[int] = None, 
+        layer_idx: Optional[int] = None,
     ) -> torch.Tensor:
         del position_ids  # Unused.
         qkv, _ = self.query_key_value(hidden_states)
@@ -235,6 +235,7 @@ class BloomModel(nn.Module):
     ) -> torch.Tensor:
         hidden_states = self.word_embeddings(input_ids)
         hidden_states = self.word_embeddings_layernorm(hidden_states)
+        #print("ESHA ", self.h, " \n ESHA final: ", self.ln_f)
         for i in range(len(self.h)):
             if cache_events is None:
                 cache_event = None
@@ -251,6 +252,7 @@ class BloomModel(nn.Module):
             )
             # if int(torch.cuda.current_device()) == 0:
             #     print("layers forward pass: ", i)
+        #ESHA: In PP this should only happen for the last rank
         hidden_states = self.ln_f(hidden_states)
         return hidden_states
 

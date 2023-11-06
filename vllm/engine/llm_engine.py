@@ -81,6 +81,7 @@ class LLMEngine:
             f"max_seq_len={model_config.max_model_len}, "
             f"download_dir={model_config.download_dir!r}, "
             f"load_format={model_config.load_format}, "
+            f"pipeline_parallel_size={parallel_config.pipeline_parallel_size}, "
             f"tensor_parallel_size={parallel_config.tensor_parallel_size}, "
             f"quantization={model_config.quantization}, "
             f"seed={model_config.seed})")
@@ -687,14 +688,19 @@ class LLMEngine:
     ) -> Any:
         """Runs the given method on all workers."""
         all_outputs = []
+        final_outputs = []
+        print("ESHA _run_workers: ", method)
         for worker in self.workers:
             if self.parallel_config.worker_use_ray:
                 executor = partial(worker.execute_method.remote, method)
+
             else:
                 executor = getattr(worker, method)
 
             output = executor(*args, **kwargs)
             all_outputs.append(output)
+            #if worker.
+            #ESHA: Run executor function to get rank from worker
 
         if self.parallel_config.worker_use_ray:
             all_outputs = ray.get(all_outputs)
@@ -703,7 +709,12 @@ class LLMEngine:
             return all_outputs
 
         # Make sure all workers have the same results.
-        output = all_outputs[0]
-        for other_output in all_outputs[1:]:
-            assert output == other_output
+        #ESHA: Make sure you only use the outputs from pp rank last
+        if (False):
+            output = all_outputs[0]
+            for other_output in all_outputs[1:]:
+                assert output == other_output
+        else:
+            print("ESHA choosing output")
+            output = all_outputs[len(all_outputs)-1]
         return output

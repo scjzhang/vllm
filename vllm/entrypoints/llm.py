@@ -1,5 +1,6 @@
 import time
 import numpy as np
+import torch
 from typing import List, Optional, Union
 
 from tqdm import tqdm
@@ -178,9 +179,11 @@ class LLM:
         outputs: List[RequestOutput] = []
         latency = []
         while self.llm_engine.has_unfinished_requests():
-            start = time.time()
+            torch.cuda.synchronize()
+            start = time.perf_counter()
             step_outputs = self.llm_engine.step()
-            end = time.time()
+            torch.cuda.synchronize()
+            end = time.perf_counter()
             latency.append(end-start)
             for output in step_outputs:
                 if output.finished:

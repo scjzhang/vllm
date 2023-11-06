@@ -24,6 +24,7 @@ InputMetadata to extract the original 2D shape of the input.
 from typing import List, Optional, Tuple
 
 import torch
+import re
 from torch import nn
 from transformers import OPTConfig
 
@@ -34,7 +35,10 @@ from vllm.model_executor.layers.sampler import Sampler
 from vllm.model_executor.weight_utils import (hf_model_weights_iterator,
                                               load_tensor_parallel_weights)
 from vllm.model_executor.parallel_utils.parallel_state import (
-    get_tensor_model_parallel_rank, get_tensor_model_parallel_world_size)
+    get_tensor_model_parallel_rank, get_tensor_model_parallel_world_size,
+    get_pipeline_model_parallel_rank, get_pipeline_model_parallel_world_size,
+    get_pipeline_model_parallel_group, get_pipeline_model_parallel_next_rank,
+    get_pipeline_model_parallel_prev_rank)
 from vllm.model_executor.parallel_utils.layers import (VocabParallelEmbedding,
                                                        ColumnParallelLinear,
                                                        RowParallelLinear)
@@ -234,20 +238,39 @@ class OPTDecoder(nn.Module):
         if self.project_in is not None:
             inputs_embeds = self.project_in(inputs_embeds)
         hidden_states = inputs_embeds + pos_embeds
+        #ESHA Added PP code
+        pipeline_model_parallel_rank = get_pipeline_model_parallel_rank()
+        num_self_layers = self.config.num_hidden_layers // get_pipeline_model_parallel_world_size()
+        start_layer = pipeline_model_parallel_rank * num_self_layers
+        end_layer = (pipeline_model_parallel_rank + 1) * num_self_layers
 
-        for i in range(len(self.layers)):
+        print("ESHA  ", self.layers, " \n ESHA: length is ", len(self.layers))
+        #ESHA -- need to write the logic for if first layer in this pipeline stage,
+        # torch.distributed.recv, unless rank is 0
+        # if last layer in this stage and rank!=world_Size-1.,
+        # torch.distributed.send
+        for i in range(start_layer, end_layer):
+            if ((i % num_self_layers == 0) and (pipeline_model_parallel_rank != 0)):
+                print("ESHA TORCH RECV waiting... rank ", pipeline_model_parallel_rank)
+                torch.distributed.recv(hidden_states, src = get_pipeline_model_parallel_prev_rank(), group=get_pipeline_model_parallel_group())
+                print("ESHA TORCH RECV complete!! rank ", pipeline_model_parallel_rank)
             if cache_events is None:
                 cache_event = None
             else:
-                cache_event = cache_events[i]
+                cache_event = cache_events[i%num_self_layers]
             layer = self.layers[i]
-            hidden_states = layer(hidden_states, kv_caches[i], input_metadata,
+            hidden_states = layer(hidden_states, kv_caches[i%num_self_layers], input_metadata,
                                   cache_event)
-
-        if self.final_layer_norm is not None:
-            hidden_states = self.final_layer_norm(hidden_states)
-        if self.project_out is not None:
-            hidden_states = self.project_out(hidden_states)
+            if ((i % num_self_layers == num_self_layers-1) and (pipeline_model_parallel_rank != get_pipeline_model_parallel_world_size() - 1)):
+                print("ESHA TORCH SEND trying from rank ", pipeline_model_parallel_rank, " to rank ", pipeline_model_parallel_rank+1)
+                torch.distributed.send(hidden_states, dst = get_pipeline_model_parallel_next_rank(), group=get_pipeline_model_parallel_group())
+                print("ESHA TORCH SEND complete!! rank ", pipeline_model_parallel_rank)
+        #ESHA: This following thing should only happen for the last PP rank
+        if (pipeline_model_parallel_rank == get_pipeline_model_parallel_world_size() - 1):
+            if self.final_layer_norm is not None:
+                hidden_states = self.final_layer_norm(hidden_states)
+            if self.project_out is not None:
+                hidden_states = self.project_out(hidden_states)
         return hidden_states
 
 
@@ -305,15 +328,25 @@ class OPTForCausalLM(nn.Module):
                      load_format: str = "auto",
                      revision: Optional[str] = None):
         tensor_model_parallel_rank = get_tensor_model_parallel_rank()
+        pipeline_model_parallel_rank = get_pipeline_model_parallel_rank()
         state_dict = self.state_dict()
 
         for name, loaded_weight in hf_model_weights_iterator(
                 model_name_or_path, cache_dir, load_format, revision):
+            #print("ESHA OPT: ", name)
             if "lm_head.weight" in name:
                 continue
 
             if name.startswith("decoder."):
                 name = "model." + name
+            layer_number  = re.search('[0-9]+', name)
+            pipeline_num_layers = self.config.num_hidden_layers // get_pipeline_model_parallel_world_size()
+            #print("ESHA PIPELINE LAYERS ", pipeline_num_layers)
+            if layer_number:
+                layer_number_n = int(layer_number.group())
+                if (layer_number_n//pipeline_num_layers != pipeline_model_parallel_rank):
+                    #print("ESHA skipping layer ", layer_number_n, " for rank ", pipeline_model_parallel_rank, flush = True)
+                    continue
 
             is_attention_weight = False
             for stride_id, att_weight_name in enumerate(
