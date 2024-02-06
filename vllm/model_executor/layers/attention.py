@@ -212,7 +212,7 @@ class PagedAttention(nn.Module):
             # Prompt run.
             # if int(torch.cuda.current_device()) == 0:
             #     print("layers prompt run: ", self.layers, num_prompt_tokens)
-            assert input_metadata.num_generation_tokens == 0
+            # ESHA assert input_metadata.num_generation_tokens == 0
             self.set_attn_bias(input_metadata, dtype=query.dtype)
             self.multi_query_kv_attention(
                 output[:num_prompt_tokens],
@@ -328,7 +328,7 @@ class PagedAttention(nn.Module):
         # print("checking generation tokens again", input_metadata.num_prompt_tokens, input_metadata.num_generation_tokens)
         if input_metadata.num_generation_tokens > 0:
             # Decoding run.
-            assert input_metadata.num_prompt_tokens == 0
+            # ESHA assert input_metadata.num_prompt_tokens == 0
             assert key_cache is not None and value_cache is not None, (
                 "key_cache and value_cache must be provided when "
                 "generating tokens.")

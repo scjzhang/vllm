@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime
 
 from vllm import EngineArgs, LLMEngine, SamplingParams
 
@@ -27,6 +28,7 @@ def main(args: argparse.Namespace):
 
     # Run the engine by calling `engine.step()` manually.
     request_id = 0
+    step_id = 0
     while True:
         # To test continuous batching, we add one request at each step.
         if test_prompts:
@@ -35,8 +37,12 @@ def main(args: argparse.Namespace):
             request_id += 1
 
         request_outputs = engine.step()
+        print(f"[{datetime.now()}] STEP {step_id}\n")
         for request_output in request_outputs:
+            print(f"[{datetime.now()}] {request_output}\n")
             if request_output.finished:
+                print("\n")
+                print(f"[{datetime.now()}] FINISHED:")
                 print(request_output)
 
         if not (engine.has_unfinished_requests() or test_prompts):
